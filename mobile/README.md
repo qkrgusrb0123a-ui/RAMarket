@@ -24,7 +24,7 @@ Expo Go에서 테스트합니다. 실제 휴대폰에서는 `.env`의 `EXPO_PUBL
 ## Expo Go에서 실행하기
 
 1. 휴대폰에 **Expo Go**를 설치하고, 휴대폰과 개발 컴퓨터를 같은 Wi-Fi에 연결합니다.
-2. `mobile/.env.example`을 복사해 `mobile/.env` 파일을 만들고, `EXPO_PUBLIC_API_BASE_URL`의 `YOUR_LOCAL_IP`를 컴퓨터의 IPv4 주소로 바꿉니다. 예: `http://192.168.0.10:10001`
+2. `mobile/.env.local` 파일에 `EXPO_PUBLIC_API_BASE_URL`을 설정합니다. 이 개인 설정 파일은 예시용 `.env`보다 우선 적용되며 Git에 포함되지 않습니다. 컴퓨터의 IPv4 주소를 입력하세요. 예: `http://192.168.0.10:10001`
 3. API 서버를 먼저 실행한 뒤, `mobile` 폴더에서 `npm start`를 실행합니다.
 4. 표시된 QR 코드를 Expo Go 앱으로 스캔합니다. 연결이 막히면 `npm start -- --tunnel`로 터널 모드에서 다시 실행합니다.
 
