@@ -2,27 +2,34 @@ import { z } from 'zod';
 import { env } from '../config/env.js';
 import { adminSupabase } from '../lib/supabase.js';
 
-const priceFeedSchema = z.object({
-  snapshots: z.array(z.object({
-    productId: z.string().uuid(),
+const ramPriceFeedSchema = z.object({
+  prices: z.array(z.object({
+    ramName: z.string().trim().min(1).max(100),
     price: z.coerce.number().int().nonnegative(),
     source: z.string().trim().min(1).max(100),
-    capturedAt: z.string().datetime().optional()
+    weekStart: z.string().date().optional()
   })).max(1000)
 });
 
-export type PriceSnapshotInput = z.infer<typeof priceFeedSchema>['snapshots'][number];
+export type RamPriceInput = z.infer<typeof ramPriceFeedSchema>['prices'][number];
 
-export async function savePriceSnapshots(snapshots: PriceSnapshotInput[]) {
-  if (!snapshots.length) return 0;
-  const { error } = await adminSupabase.from('price_snapshots').insert(snapshots.map((snapshot) => ({
-    product_id: snapshot.productId,
-    price: snapshot.price,
-    source: snapshot.source,
-    captured_at: snapshot.capturedAt ?? new Date().toISOString()
-  })));
+function currentWeekStart() {
+  const today = new Date();
+  const utcDay = today.getUTCDay() || 7;
+  today.setUTCDate(today.getUTCDate() - utcDay + 1);
+  return today.toISOString().slice(0, 10);
+}
+
+export async function saveRamPrices(prices: RamPriceInput[]) {
+  if (!prices.length) return 0;
+  const { error } = await adminSupabase.from('ram_price').upsert(prices.map((price) => ({
+    ram_name: price.ramName,
+    price: price.price,
+    source: price.source,
+    week_start: price.weekStart ?? currentWeekStart()
+  })), { onConflict: 'ram_name,source,week_start' });
   if (error) throw error;
-  return snapshots.length;
+  return prices.length;
 }
 
 /**
@@ -36,8 +43,8 @@ export async function collectWeeklyPrices() {
   }
   const response = await fetch(env.PRICE_FEED_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`Price feed request failed: ${response.status}`);
-  const feed = priceFeedSchema.parse(await response.json());
-  return savePriceSnapshots(feed.snapshots);
+  const feed = ramPriceFeedSchema.parse(await response.json());
+  return saveRamPrices(feed.prices);
 }
 
-export function parsePriceFeed(input: unknown) { return priceFeedSchema.parse(input); }
+export function parseRamPriceFeed(input: unknown) { return ramPriceFeedSchema.parse(input); }

@@ -7,6 +7,7 @@ create type public.product_status as enum ('active', 'reserved', 'sold', 'hidden
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   nickname text not null check (char_length(nickname) between 2 and 30),
+  login_id text check (login_id ~ '^[a-z0-9][a-z0-9_-]{3,19}$'),
   avatar_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

@@ -5,10 +5,11 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/env.js';
 import { errorHandler, notFound } from './middleware/error-handler.js';
-import { chatsRouter } from './routes/chats.js';
+import { authRouter } from './routes/auth.js';
+import { messagesRouter } from './routes/messages.js';
 import { healthRouter } from './routes/health.js';
 import { internalRouter } from './routes/internal.js';
-import { pricesRouter } from './routes/prices.js';
+import { ramPriceRouter } from './routes/prices.js';
 import { productsRouter } from './routes/products.js';
 
 export const app = express();
@@ -20,9 +21,10 @@ app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-8', legacyHeaders: false }));
 
 app.use('/health', healthRouter);
+app.use('/api/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }), authRouter);
 app.use('/api/v1/products', productsRouter);
-app.use('/api/v1/chats', chatsRouter);
-app.use('/api/v1/prices', pricesRouter);
+app.use('/api/v1/messages', messagesRouter);
+app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/internal', internalRouter);
 app.use(notFound);
 app.use(errorHandler);

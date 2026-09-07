@@ -1,6 +1,6 @@
 # RAMarket API
 
-중고 상품 등록·검색, 가격 이력, 1:1 채팅을 위한 TypeScript/Express API입니다. 인증, 데이터베이스, 이미지 저장소는 Supabase가 맡고, API와 주간 가격 수집 작업은 Render에서 실행합니다.
+중고 상품 등록·검색, 1:1 메시지, 주간 RAM 가격을 위한 TypeScript/Express API입니다. 인증, 데이터베이스, 이미지 저장소는 Supabase가 맡고, API와 주간 가격 수집 작업은 Render에서 실행합니다.
 
 ## 구조
 
@@ -11,7 +11,7 @@ market_brief_render/
 │   ├── jobs/               # Render Cron 작업
 │   ├── lib/                # Supabase 클라이언트
 │   ├── middleware/         # 인증·오류 처리
-│   ├── routes/             # products, chats, prices, internal
+│   ├── routes/             # products, messages, prices, internal
 │   └── services/           # 가격 수집/저장
 ├── supabase/migrations/    # 스키마, RLS, Storage 정책
 └── Dockerfile              # 컨테이너 배포 대안
@@ -38,22 +38,33 @@ supabase link --project-ref <project-ref>
 supabase db push
 ```
 
-CLI 없이 Supabase SQL Editor에서 `supabase/migrations/202609020001_initial_schema.sql` 내용을 한 번 실행해도 됩니다.
+CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일을 파일명 순서대로 실행합니다. 기존 DB에는 새 migration만 한 번 실행합니다.
+
+최종 테이블은 `users`, `products`, `products_images`, `messages`, `ram_price`의 다섯 개입니다. 관계는 `users → products → products_images`, `users/products → messages`이며, `ram_price`는 상품 판매글과 분리된 주간 시세 데이터입니다.
 
 ## 주요 API
 
 | Method | Path | 인증 | 설명 |
 | --- | --- | --- | --- |
 | GET | `/health` | - | Render 상태 확인 |
+| POST | `/api/v1/auth/sign-up` | - | 아이디·비밀번호 회원가입 후 세션 발급 |
+| POST | `/api/v1/auth/sign-in` | - | 아이디·비밀번호 로그인 후 세션 발급 |
 | GET/POST | `/api/v1/products` | POST만 필요 | 상품 목록·등록 |
 | GET | `/api/v1/products/:productId` | - | 상품 상세 |
 | PATCH | `/api/v1/products/:productId/status` | 필요 | 판매 상태 변경 |
-| GET/POST | `/api/v1/chats` | 필요 | 내 채팅 목록·채팅 시작 |
-| GET/POST | `/api/v1/chats/:chatId/messages` | 필요 | 메시지 목록·전송 |
-| GET | `/api/v1/prices/products/:productId/history` | - | 가격 이력 |
-| POST | `/internal/price-snapshots` | cron secret | 가격 수집 결과 적재 |
+| GET/POST | `/api/v1/messages` | 필요 | 개인 메시지 조회·전송 |
+| GET | `/api/v1/ram-prices/history?ramName=<RAM명>` | - | 주간 RAM 가격 이력 |
+| POST | `/internal/ram-prices` | cron secret | 주간 RAM 가격 적재 |
 
-모바일 앱은 Supabase Auth로 로그인한 뒤 받은 access token을 `Authorization: Bearer <token>`으로 보냅니다. 테이블의 RLS가 사용자의 소유 상품과 참여 채팅을 다시 검증합니다.
+`POST /api/v1/messages` 본문은 `{ "productId", "recipientId", "content" }`이고, 조회에는 선택적으로 `productId`, `otherUserId` 쿼리를 사용할 수 있습니다. RAM 가격 수집 데이터는 `{ "prices": [{ "ramName", "price", "source", "weekStart" }] }` 형식입니다. `weekStart`를 생략하면 해당 주의 월요일이 저장됩니다.
+
+웹/모바일 앱은 로그인 응답의 `session.accessToken`을 `Authorization: Bearer <token>`으로 보냅니다. 테이블의 RLS가 사용자의 소유 상품과 참여 메시지를 다시 검증합니다.
+
+## 아이디·비밀번호 로그인
+
+회원가입 아이디는 영문 소문자, 숫자, `_`, `-`를 사용한 4~20자이며, 이메일을 입력하거나 인증할 필요가 없습니다. API는 사용자에게 보이지 않는 내부 식별자만 만들어 Supabase Auth에 전달합니다. 비밀번호는 API나 `users` 테이블에 저장되지 않고, Supabase Auth가 안전한 단방향 해시로 `auth.users`에 저장합니다.
+
+새 Supabase 프로젝트에는 migration 세 개를 파일명 순서대로 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609070001_simplify_tables.sql`만 추가 적용하면 됩니다.
 
 ## 이미지 업로드 규칙
 
@@ -64,7 +75,7 @@ CLI 없이 Supabase SQL Editor에서 `supabase/migrations/202609020001_initial_s
 1. GitHub에서 빈 저장소를 만들고 이 프로젝트를 `main` 브랜치로 push합니다.
 2. Supabase 프로젝트를 만들고 migration을 반영합니다. Authentication의 앱 URL/리디렉션 URL도 모바일·웹 클라이언트에 맞춰 설정합니다.
 3. Render에서 **New → Blueprint**로 GitHub 저장소를 연결합니다. `render.yaml`이 API와 매주 월요일 03:00 UTC 가격 수집 작업을 생성합니다.
-4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `CRON_SECRET`을 입력합니다. `PRICE_FEED_URL`은 `{ "snapshots": [...] }` 형식의 합법적인 제휴 API/자체 수집 서비스 주소를 지정할 때만 설정합니다.
+4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `CRON_SECRET`을 입력합니다. `PRICE_FEED_URL`은 `{ "prices": [{ "ramName", "price", "source", "weekStart" }] }` 형식의 합법적인 제휴 API/자체 수집 서비스 주소를 지정할 때만 설정합니다.
 5. Render가 제공하는 API 주소를 앱의 `API_BASE_URL`로 설정합니다. GitHub의 main push마다 Render가 자동 배포하고 Actions가 타입 검사를 수행합니다.
 
 가격 수집은 대상 사이트의 이용약관과 공식 API 정책을 준수해야 하므로, 특정 쇼핑몰을 무단으로 스크래핑하는 코드는 포함하지 않았습니다. `PRICE_FEED_URL` 어댑터 또는 보호된 내부 적재 API로 검증된 수집 결과만 저장합니다.

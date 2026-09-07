@@ -6,6 +6,14 @@ export const adminSupabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
+/**
+ * Public client used only for the password sign-in exchange. It can issue a
+ * session, but it cannot perform administrative user operations.
+ */
+export const publicSupabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false }
+});
+
 /** Creates a request-scoped client so Supabase RLS policies receive the caller JWT. */
 export function supabaseForRequest(request: Request) {
   const authorization = request.header('authorization') ?? '';

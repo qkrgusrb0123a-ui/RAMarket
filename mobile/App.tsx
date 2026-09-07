@@ -1,183 +1,99 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View
-} from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { authApi, type AuthSession } from './src/auth';
 import { clearSession, loadSession, saveSession } from './src/auth-storage';
+import { loadFavoriteProductIds, saveFavoriteProductIds } from './src/favorite-storage';
 
 type Mode = 'sign-in' | 'sign-up';
+type Tab = 'home' | 'products' | 'chat' | 'settings';
+type Product = { id: string; title: string; memory: string; price: string; location: string; postedAt: string; likes: number; tone: 'black' | 'green' | 'silver'; seller: string; imageUri?: string };
 
-const ramGreen = '#0E766E';
+const green = '#0E766E';
+const products: Product[] = [];
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>('sign-in');
-  const [loginId, setLoginId] = useState('');
-  const [password, setPassword] = useState('');
-  const [passwordConfirmation, setPasswordConfirmation] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(null);
-  const [isRestoring, setIsRestoring] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    loadSession().then(setSession).catch(() => undefined).finally(() => setIsRestoring(false));
-  }, []);
-
-  function selectMode(nextMode: Mode) {
-    setMode(nextMode);
-    setPassword('');
-    setPasswordConfirmation('');
-    setError('');
-  }
-
+  const [mode, setMode] = useState<Mode>('sign-in'); const [loginId, setLoginId] = useState(''); const [password, setPassword] = useState(''); const [passwordConfirmation, setPasswordConfirmation] = useState(''); const [showPassword, setShowPassword] = useState(false); const [session, setSession] = useState<AuthSession | null>(null); const [isRestoring, setIsRestoring] = useState(true); const [isSubmitting, setIsSubmitting] = useState(false); const [error, setError] = useState('');
+  useEffect(() => { loadSession().then(setSession).catch(() => undefined).finally(() => setIsRestoring(false)); }, []);
+  function selectMode(next: Mode) { setMode(next); setPassword(''); setPasswordConfirmation(''); setError(''); }
   async function submit() {
-    const normalizedId = loginId.trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9_-]{3,19}$/.test(normalizedId)) {
-      setError('아이디는 영문 소문자, 숫자, 밑줄(_), 하이픈(-)으로 된 4~20자여야 합니다.');
-      return;
-    }
-    if (password.length < 8) {
-      setError('비밀번호는 8자 이상으로 입력해 주세요.');
-      return;
-    }
-    if (mode === 'sign-up' && password !== passwordConfirmation) {
-      setError('비밀번호 확인이 일치하지 않습니다.');
-      return;
-    }
-
-    setError('');
-    setIsSubmitting(true);
-    try {
-      const result = mode === 'sign-up'
-        ? await authApi.signUp(normalizedId, password)
-        : await authApi.signIn(normalizedId, password);
-      await saveSession(result);
-      setSession(result);
-      setPassword('');
-      setPasswordConfirmation('');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    const id = loginId.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9_-]{3,19}$/.test(id)) return setError('아이디는 영문 소문자, 숫자, 밑줄(_), 하이픈(-)으로 된 4~20자여야 합니다.');
+    if (password.length < 8) return setError('비밀번호는 8자 이상으로 입력해 주세요.');
+    if (mode === 'sign-up' && password !== passwordConfirmation) return setError('비밀번호 확인이 일치하지 않습니다.');
+    setError(''); setIsSubmitting(true);
+    try { const result = mode === 'sign-up' ? await authApi.signUp(id, password) : await authApi.signIn(id, password); await saveSession(result); setSession(result); setPassword(''); setPasswordConfirmation(''); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'); } finally { setIsSubmitting(false); }
   }
-
-  async function signOut() {
-    await clearSession();
-    setSession(null);
-    setLoginId('');
-    setPassword('');
-    setPasswordConfirmation('');
-  }
-
-  if (isRestoring) {
-    return <SafeAreaView style={styles.safe}><StatusBar style="dark" /><View style={styles.loader}><ActivityIndicator color={ramGreen} size="large" /><Text style={styles.loaderText}>계정을 확인하고 있어요</Text></View></SafeAreaView>;
-  }
-
-  if (session) {
-    return <SafeAreaView style={styles.safe}><StatusBar style="dark" /><View style={styles.successWrap}>
-      <RamarketBrand />
-      <View style={styles.successIcon}><Text style={styles.successCheck}>✓</Text></View>
-      <Text style={styles.successTitle}>로그인되었습니다</Text>
-      <Text style={styles.successBody}><Text style={styles.userName}>{session.user.loginId}</Text>님, RAMarket에 오신 것을 환영합니다.</Text>
-      <View style={styles.sessionNotice}><Text style={styles.sessionNoticeText}>로그인 정보는 이 기기의 보안 저장소에 보관됩니다.</Text></View>
-      <Pressable accessibilityRole="button" onPress={signOut} style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}><Text style={styles.secondaryButtonText}>로그아웃</Text></Pressable>
-    </View></SafeAreaView>;
-  }
-
-  const isSignUp = mode === 'sign-up';
-  return <SafeAreaView style={styles.safe}><StatusBar style="dark" /><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
-    <View style={styles.content}>
-      <RamarketBrand />
-      {isSignUp ? <View style={styles.signUpHeading}><Text style={styles.signUpTitle}>회원가입</Text><Text style={styles.signUpDescription}>아이디와 비밀번호를 입력해 계정을 만드세요.</Text></View> : null}
-      <View style={[styles.form, isSignUp && styles.compactForm]}>
-        <Text style={styles.label}>아이디</Text>
-        <TextInput value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} autoComplete="username" placeholder="아이디를 입력하세요" placeholderTextColor="#89948F" maxLength={20} style={styles.input} accessibilityLabel="아이디" />
-        <Text style={styles.label}>비밀번호</Text>
-        <View style={styles.passwordRow}>
-          <TextInput value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} autoComplete={isSignUp ? 'new-password' : 'current-password'} secureTextEntry={!showPassword} placeholder="비밀번호를 입력하세요" placeholderTextColor="#89948F" maxLength={72} style={styles.passwordInput} accessibilityLabel="비밀번호" />
-          <Pressable onPress={() => setShowPassword((value) => !value)} accessibilityRole="button" accessibilityLabel={showPassword ? '비밀번호 숨기기' : '비밀번호 보이기'} hitSlop={8} style={({ pressed }) => [styles.showButton, pressed && styles.showButtonPressed]}><Text style={styles.showButtonText}>{showPassword ? '숨김' : '보기'}</Text></Pressable>
-        </View>
-        {isSignUp ? <><Text style={styles.label}>비밀번호 확인</Text><TextInput value={passwordConfirmation} onChangeText={setPasswordConfirmation} autoCapitalize="none" autoCorrect={false} autoComplete="new-password" secureTextEntry placeholder="비밀번호를 한 번 더 입력하세요" placeholderTextColor="#89948F" maxLength={72} style={styles.input} accessibilityLabel="비밀번호 확인" /></> : null}
-        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        <Pressable disabled={isSubmitting} onPress={submit} accessibilityRole="button" style={({ pressed }) => [styles.primaryButton, (pressed || isSubmitting) && styles.primaryButtonPressed, isSubmitting && styles.disabledButton]}>
-          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>{isSignUp ? '회원가입' : '로그인'}</Text>}
-        </Pressable>
-        <Pressable disabled={isSubmitting} onPress={() => selectMode(isSignUp ? 'sign-in' : 'sign-up')} accessibilityRole="button" style={({ pressed }) => [styles.signUpButton, pressed && styles.signUpButtonPressed, isSubmitting && styles.disabledButton]}>
-          <Text style={styles.signUpButtonText}>{isSignUp ? '로그인으로 돌아가기' : '회원가입'}</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.securityNote}>비밀번호는 안전한 단방향 해시로 저장됩니다.</Text>
-    </View>
-  </KeyboardAvoidingView></SafeAreaView>;
+  async function signOut() { await clearSession(); setSession(null); setLoginId(''); setPassword(''); setPasswordConfirmation(''); }
+  if (isRestoring) return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.loader}><ActivityIndicator color={green} size="large" /><Text style={s.loaderText}>계정을 확인하고 있어요</Text></View></SafeAreaView>;
+  if (session) return <Marketplace session={session} onSignOut={signOut} />;
+  const signingUp = mode === 'sign-up';
+  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.keyboard}><View style={s.loginContent}><View style={s.loginBrand}><Brand /></View>{signingUp && <View style={s.signUpHeading}><Text style={s.signUpTitle}>회원가입</Text><Text style={s.signUpDescription}>아이디와 비밀번호를 입력해 계정을 만드세요.</Text></View>}<View style={[s.form, signingUp && s.compactForm]}><Text style={s.label}>아이디</Text><TextInput value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} autoComplete="username" placeholder="아이디를 입력하세요" placeholderTextColor="#89948F" maxLength={20} style={s.input} accessibilityLabel="아이디" /><Text style={s.label}>비밀번호</Text><View style={s.passwordRow}><TextInput value={password} onChangeText={setPassword} autoCapitalize="none" autoCorrect={false} autoComplete={signingUp ? 'new-password' : 'current-password'} secureTextEntry={!showPassword} placeholder="비밀번호를 입력하세요" placeholderTextColor="#89948F" maxLength={72} style={s.passwordInput} accessibilityLabel="비밀번호" /><Pressable onPress={() => setShowPassword((v) => !v)} style={s.showButton}><Text style={s.showButtonText}>{showPassword ? '숨김' : '보기'}</Text></Pressable></View>{signingUp && <><Text style={s.label}>비밀번호 확인</Text><TextInput value={passwordConfirmation} onChangeText={setPasswordConfirmation} autoCapitalize="none" autoCorrect={false} autoComplete="new-password" secureTextEntry placeholder="비밀번호를 한 번 더 입력하세요" placeholderTextColor="#89948F" maxLength={72} style={s.input} accessibilityLabel="비밀번호 확인" /></>}{error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}<Pressable disabled={isSubmitting} onPress={submit} style={({ pressed }) => [s.primaryButton, (pressed || isSubmitting) && s.primaryButtonPressed]}>{isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryButtonText}>{signingUp ? '회원가입' : '로그인'}</Text>}</Pressable><Pressable disabled={isSubmitting} onPress={() => selectMode(signingUp ? 'sign-in' : 'sign-up')} style={s.secondaryButton}><Text style={s.secondaryButtonText}>{signingUp ? '로그인으로 돌아가기' : '회원가입'}</Text></Pressable></View><Text style={s.securityNote}>비밀번호는 안전한 단방향 해시로 저장됩니다.</Text></View></KeyboardAvoidingView></SafeAreaView>;
 }
 
-function RamarketBrand() {
-  return <View style={styles.brandRow} accessibilityLabel="RAMarket">
-    <View style={styles.ramMark}>
-      <View style={styles.ramNotchLeft} /><View style={styles.ramNotchRight} />
-      <View style={styles.ramChips}><View style={styles.ramChip} /><View style={styles.ramChip} /><View style={styles.ramChip} /><View style={styles.ramChip} /></View>
-      <View style={styles.ramPins}>{Array.from({ length: 7 }, (_, index) => <View key={index} style={styles.ramPin} />)}</View>
-    </View>
-    <Text style={styles.brand}>RAMarket</Text>
-  </View>;
+function Marketplace({ session, onSignOut }: { session: AuthSession; onSignOut: () => Promise<void> }) {
+  const [tab, setTab] = useState<Tab>('products'); const [selected, setSelected] = useState<Product | null>(null); const [writing, setWriting] = useState(false); const [favoritesOpen, setFavoritesOpen] = useState(false); const [chatNotice, setChatNotice] = useState(''); const [favoriteIds, setFavoriteIds] = useState<string[]>([]); const [listedProducts, setListedProducts] = useState<Product[]>([]);
+  useEffect(() => { loadFavoriteProductIds(session.user.id).then(setFavoriteIds).catch(() => undefined); }, [session.user.id]);
+  function toggleFavorite(productId: string) { setFavoriteIds((current) => { const next = current.includes(productId) ? current.filter((id) => id !== productId) : [...current, productId]; saveFavoriteProductIds(session.user.id, next).catch(() => undefined); return next; }); }
+  function switchTab(next: Tab) { setSelected(null); setWriting(false); setFavoritesOpen(false); setChatNotice(''); setTab(next); }
+  const allProducts = listedProducts;
+  const favorites = allProducts.filter((product) => favoriteIds.includes(product.id));
+  function publishProduct(input: Omit<Product, 'id' | 'postedAt' | 'likes' | 'seller' | 'tone'>) { const product: Product = { ...input, id: `local-${Date.now()}`, postedAt: '방금 전', likes: 0, seller: session.user.loginId, tone: 'green' }; setListedProducts((current) => [product, ...current]); setWriting(false); setSelected(product); }
+  let content: React.ReactNode = tab === 'products' ? <ProductList products={allProducts} favoriteIds={favoriteIds} onToggleFavorite={toggleFavorite} onSelect={setSelected} onWrite={() => setWriting(true)} onOpenFavorites={() => setFavoritesOpen(true)} /> : tab === 'settings' ? <Settings loginId={session.user.loginId} favorites={favorites} onOpenProduct={(product) => { setTab('products'); setSelected(product); }} onSignOut={onSignOut} /> : <Placeholder tab={tab} chatNotice={chatNotice} />;
+  if (selected) content = <ProductDetail product={selected} favorite={favoriteIds.includes(selected.id)} onToggleFavorite={() => toggleFavorite(selected.id)} onBack={() => setSelected(null)} onStartChat={() => { setSelected(null); setTab('chat'); setChatNotice(`${selected.seller}님께 거래 문의를 보냈어요.`); }} />;
+  if (writing) content = <SellForm onBack={() => setWriting(false)} onPublish={publishProduct} />;
+  if (favoritesOpen) content = <FavoriteProducts products={favorites} onBack={() => setFavoritesOpen(false)} onSelect={(product) => { setFavoritesOpen(false); setTab('products'); setSelected(product); }} />;
+  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.marketplace}>{content}</View>{!selected && !writing && !favoritesOpen && <BottomNavigation active={tab} onSelect={switchTab} />}</SafeAreaView>;
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  keyboard: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 28 },
-  loader: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
-  loaderText: { color: '#68736F', fontSize: 16, fontWeight: '600' },
-  brandRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 12 },
-  ramMark: { width: 72, height: 42, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 5, backgroundColor: ramGreen, overflow: 'hidden' },
-  ramNotchLeft: { position: 'absolute', left: -5, top: 15, width: 10, height: 12, borderRadius: 6, backgroundColor: '#FFFFFF' },
-  ramNotchRight: { position: 'absolute', right: -5, top: 15, width: 10, height: 12, borderRadius: 6, backgroundColor: '#FFFFFF' },
-  ramChips: { flexDirection: 'row', gap: 4 },
-  ramChip: { flex: 1, height: 16, borderRadius: 2, backgroundColor: '#FFFFFF' },
-  ramPins: { position: 'absolute', bottom: 0, left: 10, right: 10, height: 7, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  ramPin: { width: 5, height: 6, backgroundColor: '#D8BF64' },
-  brand: { color: ramGreen, fontSize: 31, fontWeight: '800', letterSpacing: -1.3 },
-  signUpHeading: { alignItems: 'center', marginTop: 34 },
-  signUpTitle: { color: '#16201F', fontSize: 28, fontWeight: '800' },
-  signUpDescription: { marginTop: 8, color: '#68736F', fontSize: 15 },
-  form: { marginTop: 74 },
-  compactForm: { marginTop: 34 },
-  label: { marginBottom: 9, color: '#087166', fontSize: 18, fontWeight: '800' },
-  input: { height: 72, marginBottom: 24, paddingHorizontal: 20, borderWidth: 2, borderColor: '#D7DDDA', borderRadius: 18, backgroundColor: '#FFFFFF', color: '#16201F', fontSize: 19 },
-  passwordRow: { height: 72, flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingLeft: 20, paddingRight: 8, borderWidth: 2, borderColor: '#D7DDDA', borderRadius: 18, backgroundColor: '#FFFFFF' },
-  passwordInput: { flex: 1, height: '100%', color: '#16201F', fontSize: 19 },
-  showButton: { minWidth: 56, alignItems: 'center', paddingHorizontal: 12, paddingVertical: 13, borderRadius: 12 },
-  showButtonPressed: { backgroundColor: '#EAF4F1', transform: [{ scale: 0.94 }] },
-  showButtonText: { color: ramGreen, fontSize: 15, fontWeight: '800' },
-  error: { marginBottom: 18, paddingHorizontal: 15, paddingVertical: 13, borderRadius: 14, backgroundColor: '#FFF0F0', color: '#B9382F', fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  primaryButton: { height: 64, alignItems: 'center', justifyContent: 'center', marginTop: 4, borderRadius: 18, backgroundColor: ramGreen, shadowColor: '#075950', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 4 },
-  primaryButtonPressed: { backgroundColor: '#075950', transform: [{ scale: 0.975 }], shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.14, elevation: 2 },
-  disabledButton: { opacity: 0.68 },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
-  signUpButton: { height: 64, alignItems: 'center', justifyContent: 'center', marginTop: 20, borderWidth: 2, borderColor: ramGreen, borderRadius: 18, backgroundColor: '#FFFFFF' },
-  signUpButtonPressed: { backgroundColor: '#EAF4F1', transform: [{ scale: 0.975 }] },
-  signUpButtonText: { color: ramGreen, fontSize: 21, fontWeight: '800' },
-  securityNote: { marginTop: 26, color: '#89948F', fontSize: 13, lineHeight: 19, textAlign: 'center' },
-  successWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: 30 },
-  successIcon: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 55, borderRadius: 20, backgroundColor: '#DDF3ED' },
-  successCheck: { color: ramGreen, fontSize: 30, fontWeight: '800' },
-  successTitle: { marginTop: 16, color: '#16201F', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center' },
-  successBody: { marginTop: 12, color: '#68736F', fontSize: 16, lineHeight: 24, textAlign: 'center' },
-  userName: { color: '#16201F', fontWeight: '800' },
-  sessionNotice: { marginTop: 28, padding: 16, borderRadius: 14, backgroundColor: '#EAF4F1' },
-  sessionNoticeText: { color: '#46635C', fontSize: 14, lineHeight: 20, textAlign: 'center' },
-  secondaryButton: { height: 56, alignItems: 'center', justifyContent: 'center', marginTop: 22, borderWidth: 1, borderColor: '#D0DAD6', borderRadius: 14, backgroundColor: '#FFFFFF' },
-  secondaryButtonPressed: { backgroundColor: '#EAF4F1', transform: [{ scale: 0.98 }] },
-  secondaryButtonText: { color: '#40514C', fontSize: 16, fontWeight: '800' }
+function ProductList({ products, favoriteIds, onToggleFavorite, onSelect, onWrite, onOpenFavorites }: { products: Product[]; favoriteIds: string[]; onToggleFavorite: (productId: string) => void; onSelect: (product: Product) => void; onWrite: () => void; onOpenFavorites: () => void }) {
+  const [search, setSearch] = useState(''); const [category, setCategory] = useState('전체'); const categories = ['전체', 'DDR5', 'DDR4', 'DDR3', '노트북용'];
+  const visible = useMemo(() => products.filter((p) => (category === '전체' || p.memory.includes(category)) && p.title.toLowerCase().includes(search.trim().toLowerCase())), [category, products, search]);
+  return <View style={s.productScreen}><View style={s.marketHeader}><Brand compact /><View style={s.marketHeaderActions}><Pressable style={s.nearbyChip}><Text style={s.pin}>●</Text><Text style={s.nearbyText}>내 주변</Text><Text style={s.chevron}>⌄</Text></Pressable><Pressable onPress={onOpenFavorites} hitSlop={6} style={s.favoriteShortcut} accessibilityRole="button" accessibilityLabel="찜한 상품 보기"><Text style={s.favoriteShortcutHeart}>♥</Text><Text style={s.favoriteShortcutCount}>{favoriteIds.length}</Text></Pressable></View></View><Text style={s.pageTitle}>메모리 상품</Text><View style={s.searchBox}><Text style={s.searchIcon}>⌕</Text><TextInput value={search} onChangeText={setSearch} placeholder="메모리 상품을 검색하세요" placeholderTextColor="#89948F" style={s.searchInput} accessibilityLabel="상품 검색" /></View><ScrollView horizontal style={s.categoryScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={s.categoryRow}>{categories.map((item) => <Pressable key={item} onPress={() => setCategory(item)} style={[s.categoryChip, category === item && s.categorySelected]}><Text style={[s.categoryText, category === item && s.categoryTextSelected]}>{item}</Text></Pressable>)}</ScrollView><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.productList}>{visible.length ? visible.map((product) => <Pressable key={product.id} onPress={() => onSelect(product)} style={({ pressed }) => [s.productRow, pressed && s.pressed]}><RamThumbnail tone={product.tone} imageUri={product.imageUri} /><View style={s.productInfo}><View style={s.memoryTag}><Text style={s.memoryTagText}>{product.memory}</Text></View><Text numberOfLines={2} style={s.productTitle}>{product.title}</Text><Text style={s.price}>{product.price}</Text><Text style={s.productMeta}>●  {product.location}   ·   {product.postedAt}</Text></View><Pressable onPress={(event) => { event.stopPropagation(); onToggleFavorite(product.id); }} hitSlop={8} style={s.heartButton}><Text style={[s.heart, favoriteIds.includes(product.id) && s.heartActive]}>{favoriteIds.includes(product.id) ? '♥' : '♡'}</Text><Text style={s.likeCount}>{product.likes + (favoriteIds.includes(product.id) ? 1 : 0)}</Text></Pressable></Pressable>) : <View style={s.empty}><Text style={s.emptyTitle}>등록된 상품이 없어요</Text><Text style={s.emptyBody}>첫 번째 RAM 상품을 판매해 보세요.</Text></View>}</ScrollView><Pressable onPress={onWrite} style={({ pressed }) => [s.sellFloating, pressed && s.primaryButtonPressed]}><Text style={s.sellPlus}>＋</Text><Text style={s.sellText}>판매하기</Text></Pressable></View>;
+}
+
+function ProductDetail({ product, favorite, onToggleFavorite, onBack, onStartChat }: { product: Product; favorite: boolean; onToggleFavorite: () => void; onBack: () => void; onStartChat: () => void }) {
+  return <ScrollView contentContainerStyle={s.detailContent}><TopBar title="상품 상세" onBack={onBack} /><RamThumbnail tone={product.tone} imageUri={product.imageUri} large /><View style={s.detailInfo}><Text style={s.detailTitle}>{product.title}</Text><Text style={s.detailMeta}>{product.location} · {product.postedAt}</Text><Text style={s.detailPrice}>{product.price}</Text><View style={s.divider} /><View style={s.sellerRow}><View style={s.avatar}><Text style={s.avatarText}>{product.seller.charAt(0)}</Text></View><View><Text style={s.sellerName}>{product.seller}</Text><Text style={s.sellerMeta}>응답률 100% · 매너온도 38.5℃</Text></View></View><Text style={s.detailDescription}>정상 동작 확인 후 판매합니다. 직접 거래와 택배 거래 모두 가능해요. 궁금한 점은 편하게 채팅으로 문의해 주세요.</Text></View><View style={s.detailActions}><Pressable onPress={onToggleFavorite} style={s.detailHeart}><Text style={[s.detailHeartText, favorite && s.heartActive]}>{favorite ? '♥' : '♡'}</Text></Pressable><View style={s.actionPrice}><Text style={s.actionPriceText}>{product.price}</Text><Text style={s.actionLocation}>{product.location}</Text></View><Pressable onPress={onStartChat} style={s.chatButton}><Text style={s.chatButtonText}>채팅으로 거래 문의</Text></Pressable></View></ScrollView>;
+}
+
+function FavoriteProducts({ products, onBack, onSelect }: { products: Product[]; onBack: () => void; onSelect: (product: Product) => void }) {
+  return <View style={s.favoriteScreen}><TopBar title="찜한 상품" onBack={onBack} /><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.favoriteList}>{products.length ? products.map((product) => <Pressable key={product.id} onPress={() => onSelect(product)} style={({ pressed }) => [s.favoriteProductRow, pressed && s.pressed]}><RamThumbnail tone={product.tone} imageUri={product.imageUri} /><View style={s.favoriteProductInfo}><Text numberOfLines={2} style={s.productTitle}>{product.title}</Text><Text style={s.price}>{product.price}</Text><Text style={s.productMeta}>{product.location} · {product.postedAt}</Text></View><Text style={s.favoriteProductHeart}>♥</Text></Pressable>) : <View style={s.favoriteEmpty}><Text style={s.emptyTitle}>찜한 상품이 없어요</Text><Text style={s.emptyBody}>상품의 하트를 눌러 관심 상품을 모아 보세요.</Text></View>}</ScrollView></View>;
+}
+
+function SellForm({ onBack, onPublish }: { onBack: () => void; onPublish: (product: Omit<Product, 'id' | 'postedAt' | 'likes' | 'seller' | 'tone'>) => void }) {
+  const [title, setTitle] = useState(''); const [price, setPrice] = useState(''); const [ddr, setDdr] = useState<'DDR4' | 'DDR5'>('DDR4'); const [capacity, setCapacity] = useState('8GB'); const [manufacturer, setManufacturer] = useState(''); const [photoUris, setPhotoUris] = useState<string[]>([]); const [formError, setFormError] = useState('');
+  async function pickPhotos() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { Alert.alert('사진 권한이 필요해요', '판매할 상품 사진을 선택하려면 앨범 접근을 허용해 주세요.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: Math.max(1, 10 - photoUris.length), quality: 0.8 });
+    if (!result.canceled) setPhotoUris((current) => [...current, ...result.assets.map((asset) => asset.uri)].slice(0, 10));
+  }
+  function publish() {
+    const numericPrice = Number(price.replace(/[^0-9]/g, ''));
+    if (title.trim().length < 2) return setFormError('상품 제목을 2자 이상 입력해 주세요.');
+    if (!numericPrice) return setFormError('가격을 숫자로 입력해 주세요.');
+    if (!manufacturer.trim()) return setFormError('제조사를 입력해 주세요.');
+    onPublish({ title: title.trim(), memory: `${ddr} · ${capacity} · ${manufacturer.trim()}`, price: `${numericPrice.toLocaleString('ko-KR')}원`, location: '거래 장소 협의', imageUri: photoUris[0] });
+  }
+  return <KeyboardAvoidingView style={s.writeScreen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><TopBar title="판매 글 작성" onBack={onBack} /><ScrollView contentContainerStyle={s.writeContent}><Pressable onPress={pickPhotos} style={s.imagePicker}><Text style={s.imageIcon}>▧</Text><Text style={s.imageText}>사진 추가</Text><Text style={s.imageHint}>{photoUris.length}/10장 · 앨범에서 선택</Text></Pressable>{photoUris.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.photoPreviewRow}>{photoUris.map((uri) => <View key={uri} style={s.photoPreviewWrap}><Image source={{ uri }} style={s.photoPreview} /><Pressable onPress={() => setPhotoUris((current) => current.filter((value) => value !== uri))} style={s.removePhoto}><Text style={s.removePhotoText}>×</Text></Pressable></View>)}</ScrollView> : null}<Text style={s.writeLabel}>상품 제목</Text><TextInput value={title} onChangeText={setTitle} placeholder="예: FURY Beast 16GB 2개" placeholderTextColor="#89948F" style={s.writeInput} /><Text style={s.writeLabel}>카테고리</Text><Text style={s.categoryHelp}>메모리 규격과 용량을 선택하고 제조사를 입력해 주세요.</Text><View style={s.optionGroup}><Text style={s.optionTitle}>규격</Text><View style={s.optionRow}>{(['DDR4', 'DDR5'] as const).map((item) => <Pressable key={item} onPress={() => setDdr(item)} style={[s.optionChip, ddr === item && s.optionSelected]}><Text style={[s.optionChipText, ddr === item && s.optionSelectedText]}>{item}</Text></Pressable>)}</View></View><View style={s.optionGroup}><Text style={s.optionTitle}>용량</Text><View style={s.optionRow}>{['4GB', '8GB', '16GB', '32GB', '64GB'].map((item) => <Pressable key={item} onPress={() => setCapacity(item)} style={[s.optionChip, capacity === item && s.optionSelected]}><Text style={[s.optionChipText, capacity === item && s.optionSelectedText]}>{item}</Text></Pressable>)}</View></View><Text style={s.optionTitle}>제조사</Text><TextInput value={manufacturer} onChangeText={setManufacturer} placeholder="예: 삼성전자, SK하이닉스, Kingston" placeholderTextColor="#89948F" style={s.writeInput} /><Text style={s.writeLabel}>가격</Text><View style={s.priceInputWrap}><TextInput value={price} onChangeText={setPrice} keyboardType="number-pad" placeholder="가격을 입력하세요" placeholderTextColor="#89948F" style={s.priceInput} /><Text style={s.won}>원</Text></View>{formError ? <Text style={s.formError}>{formError}</Text> : null}<Pressable onPress={publish} style={[s.primaryButton, s.writeSubmit]}><Text style={s.primaryButtonText}>판매글 등록</Text></Pressable></ScrollView></KeyboardAvoidingView>;
+}
+
+function Placeholder({ tab, chatNotice }: { tab: Tab; chatNotice: string }) { const chat = tab === 'chat'; return <View style={s.placeholder}><View style={s.placeholderIcon}><Text style={s.placeholderMark}>{chat ? '◌' : '⌂'}</Text></View><Text style={s.placeholderTitle}>{chat ? '거래 채팅' : '주간 RAM 시세'}</Text><Text style={s.placeholderBody}>{chatNotice || (chat ? '상품 판매자와 안전하게 대화할 수 있는 채팅을 준비 중이에요.' : 'RAM 주간 시세를 한눈에 볼 수 있는 메인 화면을 준비 중이에요.')}</Text></View>; }
+function Settings({ loginId, favorites, onOpenProduct, onSignOut }: { loginId: string; favorites: Product[]; onOpenProduct: (product: Product) => void; onSignOut: () => Promise<void> }) { const [bookmarksOpen, setBookmarksOpen] = useState(false); return <ScrollView contentContainerStyle={s.settings}><Brand compact /><Text style={s.settingsTitle}>내 설정</Text><View style={s.profileCard}><View style={s.profileAvatar}><Text style={s.profileAvatarText}>{loginId.charAt(0).toUpperCase()}</Text></View><View><Text style={s.profileId}>{loginId}</Text><Text style={s.profileSub}>RAMarket 사용자</Text></View></View><View style={s.settingRow}><Text style={s.settingText}>내 판매 상품</Text><Text style={s.settingArrow}>›</Text></View><Pressable onPress={() => undefined} style={s.settingRow}><View><Text style={s.settingText}>내 위치 설정</Text><Text style={s.settingDescription}>현재 위치를 기반으로 동네를 설정할 수 있어요</Text></View><Text style={s.settingArrow}>›</Text></Pressable><Pressable onPress={() => setBookmarksOpen((open) => !open)} style={s.settingRow}><View><Text style={s.settingText}>북마크한 상품</Text><Text style={s.settingDescription}>관심 표시한 상품 {favorites.length}개</Text></View><Text style={s.settingArrow}>{bookmarksOpen ? '⌃' : '›'}</Text></Pressable>{bookmarksOpen && <View style={s.bookmarks}>{favorites.length ? favorites.map((product) => <Pressable key={product.id} onPress={() => onOpenProduct(product)} style={s.bookmarkRow}><RamThumbnail tone={product.tone} imageUri={product.imageUri} /><View style={s.bookmarkInfo}><Text numberOfLines={2} style={s.bookmarkTitle}>{product.title}</Text><Text style={s.bookmarkPrice}>{product.price}</Text></View></Pressable>) : <Text style={s.noBookmarks}>아직 북마크한 상품이 없어요.</Text>}</View>}<Pressable onPress={onSignOut} style={s.logoutButton}><Text style={s.logoutText}>로그아웃</Text></Pressable></ScrollView>; }
+function BottomNavigation({ active, onSelect }: { active: Tab; onSelect: (tab: Tab) => void }) { const items: { id: Tab; icon: string; label: string }[] = [{ id: 'home', icon: '⌂', label: '홈' }, { id: 'products', icon: '▣', label: '상품' }, { id: 'chat', icon: '◌', label: '채팅' }, { id: 'settings', icon: '⚙', label: '설정' }]; return <View style={s.tabBar}>{items.map((item) => <Pressable key={item.id} onPress={() => onSelect(item.id)} accessibilityRole="tab" accessibilityState={{ selected: active === item.id }} style={s.tab}><Text style={[s.tabIcon, active === item.id && s.tabSelected]}>{item.icon}</Text><Text style={[s.tabLabel, active === item.id && s.tabSelected]}>{item.label}</Text></Pressable>)}</View>; }
+function TopBar({ title, onBack }: { title: string; onBack: () => void }) { return <View style={s.topBar}><Pressable onPress={onBack} style={s.back}><Text style={s.backText}>‹</Text></Pressable><Text style={s.topTitle}>{title}</Text><View style={s.back} /></View>; }
+function RamThumbnail({ tone, imageUri, large = false }: { tone: Product['tone']; imageUri?: string; large?: boolean }) { if (imageUri) return <Image source={{ uri: imageUri }} style={[s.thumbnail, large && s.thumbnailLarge, large && s.productPhotoLarge]} />; return <View style={[s.thumbnail, large && s.thumbnailLarge, tone === 'black' && s.thumbnailBlack, tone === 'green' && s.thumbnailGreen, tone === 'silver' && s.thumbnailSilver]}><View style={[s.ramStick, tone === 'green' && s.ramStickGreen, tone === 'silver' && s.ramStickSilver]}><View style={s.ramLabel}><Text style={s.ramLabelText}>RAM</Text></View><View style={s.ramBlocks}>{Array.from({ length: 5 }, (_, i) => <View key={i} style={s.ramBlock} />)}</View><View style={s.pins}>{Array.from({ length: 8 }, (_, i) => <View key={i} style={s.ramPin} />)}</View></View></View>; }
+function Brand({ compact = false }: { compact?: boolean }) { return <View style={s.brandRow}><View style={[s.ramMark, compact && s.ramMarkCompact]}><View style={s.chips}>{Array.from({ length: 4 }, (_, i) => <View key={i} style={s.chip} />)}</View><View style={s.brandPins}>{Array.from({ length: 7 }, (_, i) => <View key={i} style={s.brandPin} />)}</View></View><Text style={[s.brand, compact && s.brandCompact]}>RAMarket</Text></View>; }
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#FFFFFF' }, keyboard: { flex: 1 }, loader: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 14 }, loaderText: { color: '#68736F', fontSize: 16, fontWeight: '600' }, loginContent: { flex: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 28 }, loginBrand: { alignItems: 'center' },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, ramMark: { width: 72, height: 42, justifyContent: 'center', paddingHorizontal: 9, borderRadius: 5, backgroundColor: green, overflow: 'hidden' }, ramMarkCompact: { width: 45, height: 27, paddingHorizontal: 6, borderRadius: 4 }, chips: { flexDirection: 'row', gap: 4 }, chip: { flex: 1, height: 16, borderRadius: 2, backgroundColor: '#FFFFFF' }, brandPins: { position: 'absolute', left: 10, right: 10, bottom: 0, flexDirection: 'row', justifyContent: 'space-between' }, brandPin: { width: 5, height: 6, backgroundColor: '#D8BF64' }, brand: { color: green, fontSize: 31, fontWeight: '800', letterSpacing: -1.3 }, brandCompact: { fontSize: 22, letterSpacing: -0.9 },
+  signUpHeading: { alignItems: 'center', marginTop: 34 }, signUpTitle: { color: '#16201F', fontSize: 28, fontWeight: '800' }, signUpDescription: { marginTop: 8, color: '#68736F', fontSize: 15 }, form: { marginTop: 74 }, compactForm: { marginTop: 34 }, label: { marginBottom: 9, color: '#087166', fontSize: 18, fontWeight: '800' }, input: { height: 72, marginBottom: 24, paddingHorizontal: 20, borderWidth: 2, borderColor: '#D7DDDA', borderRadius: 18, color: '#16201F', fontSize: 19 }, passwordRow: { height: 72, flexDirection: 'row', alignItems: 'center', marginBottom: 24, paddingLeft: 20, paddingRight: 8, borderWidth: 2, borderColor: '#D7DDDA', borderRadius: 18 }, passwordInput: { flex: 1, height: '100%', color: '#16201F', fontSize: 19 }, showButton: { paddingHorizontal: 12, paddingVertical: 13, borderRadius: 12 }, showButtonText: { color: green, fontSize: 15, fontWeight: '800' }, error: { marginBottom: 18, padding: 14, borderRadius: 14, backgroundColor: '#FFF0F0', color: '#B9382F', fontSize: 14, lineHeight: 20 }, primaryButton: { height: 64, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: green, shadowColor: '#075950', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 4 }, primaryButtonPressed: { backgroundColor: '#075950', transform: [{ scale: 0.975 }] }, primaryButtonText: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' }, secondaryButton: { height: 64, alignItems: 'center', justifyContent: 'center', marginTop: 20, borderWidth: 2, borderColor: green, borderRadius: 18 }, secondaryButtonText: { color: green, fontSize: 20, fontWeight: '800' }, securityNote: { marginTop: 26, color: '#89948F', fontSize: 13, textAlign: 'center' },
+  marketplace: { flex: 1 }, productScreen: { flex: 1, paddingTop: 8 }, marketHeader: { height: 52, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, marketHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 }, nearbyChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 13, backgroundColor: '#EAF4F1' }, favoriteShortcut: { minWidth: 43, height: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 8, borderRadius: 13, backgroundColor: '#FFF1F2' }, favoriteShortcutHeart: { color: '#CF4A58', fontSize: 18 }, favoriteShortcutCount: { color: '#B93848', fontSize: 12, fontWeight: '800' }, pin: { color: green, fontSize: 11 }, nearbyText: { color: '#16201F', fontSize: 14, fontWeight: '800' }, chevron: { color: '#46635C', fontSize: 17, lineHeight: 16 }, pageTitle: { paddingHorizontal: 20, marginTop: 18, color: '#16201F', fontSize: 28, fontWeight: '800', letterSpacing: -1.1 }, searchBox: { height: 54, flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginTop: 18, paddingHorizontal: 15, borderRadius: 16, backgroundColor: '#F1F6F4' }, searchIcon: { color: '#68736F', fontSize: 30, marginRight: 9, marginTop: -5 }, searchInput: { flex: 1, color: '#16201F', fontSize: 16 }, categoryScroll: { flexGrow: 0, flexShrink: 0, maxHeight: 64 }, categoryRow: { flexGrow: 0, alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingVertical: 12 }, categoryChip: { flexGrow: 0, paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 20 }, categorySelected: { borderColor: green, backgroundColor: green }, categoryText: { color: '#68736F', fontSize: 14, fontWeight: '700' }, categoryTextSelected: { color: '#FFFFFF' }, productList: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 95 }, productRow: { minHeight: 128, flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EDF0EF' }, pressed: { opacity: 0.65 }, thumbnail: { width: 104, height: 104, alignItems: 'center', justifyContent: 'center', marginRight: 13, borderRadius: 15, backgroundColor: '#EDF4F1', overflow: 'hidden' }, thumbnailLarge: { width: '100%', height: 280, marginRight: 0, borderRadius: 0 }, thumbnailBlack: { backgroundColor: '#DCE2E0' }, thumbnailGreen: { backgroundColor: '#E4F0E9' }, thumbnailSilver: { backgroundColor: '#EEF1F1' }, ramStick: { width: '82%', height: '38%', justifyContent: 'center', paddingHorizontal: 9, borderRadius: 5, backgroundColor: '#17211F', transform: [{ rotate: '-10deg' }], shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 4, elevation: 2 }, ramStickGreen: { backgroundColor: '#2C805A' }, ramStickSilver: { backgroundColor: '#7E8D91' }, ramLabel: { width: '35%', alignItems: 'center', paddingVertical: 3, borderRadius: 2, backgroundColor: '#DCE8E3' }, ramLabelText: { color: green, fontSize: 7, fontWeight: '900' }, ramBlocks: { position: 'absolute', top: 6, left: '42%', right: 6, flexDirection: 'row', gap: 3 }, ramBlock: { flex: 1, height: 10, borderRadius: 1, backgroundColor: '#495552' }, pins: { position: 'absolute', left: 7, right: 7, bottom: -5, flexDirection: 'row', justifyContent: 'space-between' }, ramPin: { width: 5, height: 6, backgroundColor: '#D8BF64' }, productInfo: { flex: 1, justifyContent: 'center', paddingRight: 22 }, memoryTag: { alignSelf: 'flex-start', marginBottom: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, backgroundColor: '#EAF4F1' }, memoryTagText: { color: green, fontSize: 12, fontWeight: '800' }, productTitle: { color: '#16201F', fontSize: 15, fontWeight: '700', lineHeight: 21 }, price: { marginTop: 5, color: green, fontSize: 18, fontWeight: '800' }, productMeta: { marginTop: 7, color: '#89948F', fontSize: 12 }, heartButton: { position: 'absolute', right: 0, bottom: 20, flexDirection: 'row', alignItems: 'center', gap: 2 }, heart: { color: '#89948F', fontSize: 25 }, heartActive: { color: '#CF4A58' }, likeCount: { color: '#89948F', fontSize: 12 }, empty: { alignItems: 'center', paddingTop: 55 }, emptyTitle: { color: '#16201F', fontSize: 17, fontWeight: '800' }, emptyBody: { marginTop: 6, color: '#68736F', fontSize: 14 }, sellFloating: { position: 'absolute', right: 20, bottom: 78, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 28, backgroundColor: green, shadowColor: '#075950', shadowOpacity: 0.25, shadowRadius: 7, shadowOffset: { width: 0, height: 4 }, elevation: 5 }, sellPlus: { color: '#FFFFFF', fontSize: 28, lineHeight: 28 }, sellText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  tabBar: { height: 70, flexDirection: 'row', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E9EEEC', backgroundColor: '#FFFFFF' }, tab: { flex: 1, alignItems: 'center', gap: 2 }, tabIcon: { color: '#89948F', fontSize: 25, lineHeight: 29 }, tabLabel: { color: '#89948F', fontSize: 12, fontWeight: '700' }, tabSelected: { color: green },
+  topBar: { height: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14 }, back: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }, backText: { color: '#16201F', fontSize: 38, fontWeight: '300', marginTop: -5 }, topTitle: { color: '#16201F', fontSize: 17, fontWeight: '800' }, detailContent: { paddingBottom: 24 }, detailInfo: { paddingHorizontal: 20, paddingTop: 22 }, detailTitle: { color: '#16201F', fontSize: 23, fontWeight: '800', lineHeight: 31 }, detailMeta: { marginTop: 9, color: '#89948F', fontSize: 13 }, detailPrice: { marginTop: 20, color: '#16201F', fontSize: 25, fontWeight: '800' }, divider: { height: 1, marginVertical: 22, backgroundColor: '#E9EEEC' }, sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, avatar: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 23, backgroundColor: '#DDF3ED' }, avatarText: { color: green, fontSize: 18, fontWeight: '800' }, sellerName: { color: '#16201F', fontSize: 16, fontWeight: '800' }, sellerMeta: { marginTop: 3, color: '#68736F', fontSize: 12 }, detailDescription: { marginTop: 22, color: '#40514C', fontSize: 15, lineHeight: 24 }, detailActions: { flexDirection: 'row', alignItems: 'center', margin: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#E9EEEC' }, detailHeart: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: '#E9EEEC' }, detailHeartText: { color: '#68736F', fontSize: 29 }, actionPrice: { flex: 1, paddingLeft: 14 }, actionPriceText: { color: '#16201F', fontSize: 17, fontWeight: '800' }, actionLocation: { marginTop: 2, color: '#89948F', fontSize: 11 }, chatButton: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15, paddingVertical: 14, borderRadius: 12, backgroundColor: green }, chatButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  writeScreen: { flex: 1 }, writeContent: { padding: 20, paddingBottom: 42 }, imagePicker: { height: 132, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: '#A8BAB4', borderRadius: 16, backgroundColor: '#F8FBFA' }, imageIcon: { color: green, fontSize: 34 }, imageText: { marginTop: 6, color: '#40514C', fontSize: 15, fontWeight: '800' }, imageHint: { marginTop: 3, color: '#89948F', fontSize: 12 }, photoPreviewRow: { gap: 10, paddingTop: 12 }, photoPreviewWrap: { position: 'relative' }, photoPreview: { width: 76, height: 76, borderRadius: 10, backgroundColor: '#EAF4F1' }, removePhoto: { position: 'absolute', top: -6, right: -6, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#16201F' }, removePhotoText: { color: '#FFFFFF', fontSize: 17, lineHeight: 20 }, writeLabel: { marginTop: 24, marginBottom: 9, color: '#087166', fontSize: 15, fontWeight: '800' }, categoryHelp: { marginTop: -3, marginBottom: 13, color: '#68736F', fontSize: 13 }, optionGroup: { marginBottom: 15 }, optionTitle: { marginBottom: 8, color: '#40514C', fontSize: 14, fontWeight: '800' }, optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, optionChip: { minWidth: 65, alignItems: 'center', paddingHorizontal: 13, paddingVertical: 10, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 12 }, optionSelected: { borderColor: green, backgroundColor: '#EAF4F1' }, optionChipText: { color: '#68736F', fontSize: 14, fontWeight: '700' }, optionSelectedText: { color: green }, writeInput: { height: 54, paddingHorizontal: 15, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 13, color: '#16201F', fontSize: 15 }, priceInputWrap: { height: 54, flexDirection: 'row', alignItems: 'center', paddingRight: 15, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 13 }, priceInput: { flex: 1, height: '100%', paddingHorizontal: 15, color: '#16201F', fontSize: 15 }, won: { color: '#40514C', fontSize: 15, fontWeight: '700' }, formError: { marginTop: 13, padding: 12, borderRadius: 10, backgroundColor: '#FFF0F0', color: '#B9382F', fontSize: 13 }, writeSubmit: { marginTop: 30 }, productPhotoLarge: { resizeMode: 'cover' },
+  placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 45 }, placeholderIcon: { width: 70, height: 70, alignItems: 'center', justifyContent: 'center', borderRadius: 25, backgroundColor: '#EAF4F1' }, placeholderMark: { color: green, fontSize: 38 }, placeholderTitle: { marginTop: 18, color: '#16201F', fontSize: 23, fontWeight: '800' }, placeholderBody: { marginTop: 10, color: '#68736F', fontSize: 15, lineHeight: 22, textAlign: 'center' }, favoriteScreen: { flex: 1 }, favoriteList: { flexGrow: 1, paddingHorizontal: 20, paddingBottom: 28 }, favoriteProductRow: { minHeight: 128, flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EDF0EF' }, favoriteProductInfo: { flex: 1, justifyContent: 'center', paddingRight: 12 }, favoriteProductHeart: { color: '#CF4A58', fontSize: 23 }, favoriteEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 70 }, settings: { flexGrow: 1, padding: 24 }, settingsTitle: { marginTop: 35, color: '#16201F', fontSize: 27, fontWeight: '800' }, profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 20, padding: 18, borderRadius: 18, backgroundColor: '#EAF4F1' }, profileAvatar: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 23, backgroundColor: green }, profileAvatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' }, profileId: { color: '#16201F', fontSize: 17, fontWeight: '800' }, profileSub: { marginTop: 3, color: '#68736F', fontSize: 13 }, settingRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#E9EEEC' }, settingText: { color: '#40514C', fontSize: 16, fontWeight: '700' }, settingDescription: { marginTop: 4, color: '#89948F', fontSize: 12 }, settingArrow: { color: '#89948F', fontSize: 23, lineHeight: 18 }, bookmarks: { paddingTop: 4 }, bookmarkRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EDF0EF' }, bookmarkInfo: { flex: 1, paddingRight: 6 }, bookmarkTitle: { color: '#16201F', fontSize: 14, fontWeight: '700', lineHeight: 20 }, bookmarkPrice: { marginTop: 5, color: green, fontSize: 15, fontWeight: '800' }, noBookmarks: { paddingVertical: 22, color: '#68736F', textAlign: 'center', fontSize: 14 }, logoutButton: { alignItems: 'center', marginTop: 32, marginBottom: 16, paddingVertical: 15, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 13 }, logoutText: { color: '#68736F', fontSize: 15, fontWeight: '800' }
 });
