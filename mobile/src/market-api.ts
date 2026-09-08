@@ -1,4 +1,5 @@
 import type { AuthSession } from './auth';
+import { File } from 'expo-file-system';
 
 type ApiProductImage = { path: string; sort_order: number };
 type ApiSeller = { id: string; nickname: string } | { id: string; nickname: string }[] | null;
@@ -121,7 +122,10 @@ export async function uploadProductImages(images: UploadableImage[], session: Au
     const mimeType = image.mimeType === 'image/jpg' ? 'image/jpeg' : image.mimeType || 'image/jpeg';
     const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
     const formData = new FormData();
-    formData.append('image', { uri: image.uri, type: mimeType, name: `product.${extension}` } as unknown as Blob);
+    // Expo SDK 57 requires a real File/Blob value here; the legacy RN
+    // { uri, type, name } object causes "Unsupported FormDataPart implementation" on iOS.
+    formData.append('image', new File(image.uri), `product.${extension}`);
+    formData.append('mimeType', mimeType);
     const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/product-image`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session.session.accessToken}` },

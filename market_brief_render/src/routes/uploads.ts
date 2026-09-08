@@ -21,7 +21,8 @@ uploadsRouter.post(
   upload.single('image'),
   async (request, response, next) => {
     try {
-      const mimeType = normalizeMimeType(request.file?.mimetype ?? '');
+      const requestedMimeType = typeof request.body?.mimeType === 'string' ? request.body.mimeType : '';
+      const mimeType = normalizeMimeType(requestedMimeType || request.file?.mimetype || '');
       if (!acceptedMimeTypes.has(mimeType)) return response.status(415).json({ error: 'JPEG, PNG, WebP 사진만 업로드할 수 있습니다.' });
       if (!request.file?.buffer.length) return response.status(400).json({ error: '업로드할 사진을 찾을 수 없습니다.' });
       const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
