@@ -55,7 +55,7 @@ export type ChatThread = {
   createdAt: string;
 };
 
-export type UploadableImage = { uri: string; mimeType?: string | null };
+export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
@@ -117,15 +117,15 @@ export async function uploadProductImages(images: UploadableImage[], session: Au
   if (!images.length) return [];
   const paths: string[] = [];
   for (const image of images) {
-    const { uri } = image;
-    const localImage = await fetch(uri);
-    const blob = await localImage.blob();
-    if (blob.size > 5 * 1024 * 1024) throw new Error('사진 한 장은 5MB 이하만 등록할 수 있습니다. 더 작은 사진을 선택해 주세요.');
-    const mimeType = image.mimeType || blob.type || localImage.headers.get('content-type') || 'image/jpeg';
+    if (image.fileSize && image.fileSize > 5 * 1024 * 1024) throw new Error('사진 한 장은 5MB 이하만 등록할 수 있습니다. 더 작은 사진을 선택해 주세요.');
+    const mimeType = image.mimeType === 'image/jpg' ? 'image/jpeg' : image.mimeType || 'image/jpeg';
+    const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const formData = new FormData();
+    formData.append('image', { uri: image.uri, type: mimeType, name: `product.${extension}` } as unknown as Blob);
     const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/product-image`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session.session.accessToken}`, 'Content-Type': 'application/octet-stream', 'X-Image-Mime-Type': mimeType },
-      body: blob
+      headers: { Authorization: `Bearer ${session.session.accessToken}` },
+      body: formData
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.data?.path) throw new Error(data.error ?? '사진을 클라우드 저장소에 올리지 못했습니다. 잠시 후 다시 시도해 주세요.');
