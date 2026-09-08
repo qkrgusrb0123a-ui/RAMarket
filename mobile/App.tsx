@@ -16,7 +16,22 @@ export default function App() {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [loginId, setLoginId] = useState(''); const [password, setPassword] = useState(''); const [confirmation, setConfirmation] = useState('');
   const [session, setSession] = useState<AuthSession | null>(null); const [restoring, setRestoring] = useState(true); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('');
-  useEffect(() => { loadSession().then(setSession).catch(() => undefined).finally(() => setRestoring(false)); }, []);
+  useEffect(() => {
+    async function restoreSession() {
+      try {
+        const savedSession = await loadSession();
+        if (!savedSession) return;
+        const refreshedSession = await authApi.refresh(savedSession.session.refreshToken);
+        await saveSession(refreshedSession);
+        setSession(refreshedSession);
+      } catch {
+        await clearSession();
+      } finally {
+        setRestoring(false);
+      }
+    }
+    restoreSession();
+  }, []);
   async function submit() {
     const id = loginId.trim().toLowerCase();
     if (!/^[a-z0-9][a-z0-9_-]{3,19}$/.test(id)) return setError('아이디는 영문 소문자, 숫자, 밑줄(_), 하이픈(-)으로 된 4~20자여야 합니다.');

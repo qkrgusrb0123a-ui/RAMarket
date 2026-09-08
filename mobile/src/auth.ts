@@ -5,7 +5,7 @@ export type AuthSession = {
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 
-async function request(path: string, body: { loginId: string; password: string }): Promise<AuthSession> {
+async function request(path: string, body: Record<string, string>): Promise<AuthSession> {
   if (!apiBaseUrl) {
     throw new Error('서버 주소가 설정되지 않았습니다. .env의 EXPO_PUBLIC_API_BASE_URL을 확인해 주세요.');
   }
@@ -28,5 +28,6 @@ async function request(path: string, body: { loginId: string; password: string }
 
 export const authApi = {
   signUp: (loginId: string, password: string) => request('/api/v1/auth/sign-up', { loginId, password }),
-  signIn: (loginId: string, password: string) => request('/api/v1/auth/sign-in', { loginId, password })
+  signIn: (loginId: string, password: string) => request('/api/v1/auth/sign-in', { loginId, password }),
+  refresh: (refreshToken: string) => request('/api/v1/auth/refresh', { refreshToken })
 };

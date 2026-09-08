@@ -22,6 +22,10 @@ const signInInput = z.object({
   password: z.string().min(1).max(72)
 });
 
+const refreshInput = z.object({
+  refreshToken: z.string().min(1)
+});
+
 /**
  * Supabase Auth requires an email-shaped identifier for password auth. This
  * address is never shown to, or collected from, the user and ends in .invalid
@@ -90,6 +94,27 @@ authRouter.post('/sign-in', async (request, response, next) => {
       return response.status(401).json({ error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
     }
 
+    return response.json(sessionResponse(
+      data.user.id,
+      loginId,
+      data.session.access_token,
+      data.session.refresh_token,
+      data.session.expires_in
+    ));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+authRouter.post('/refresh', async (request, response, next) => {
+  try {
+    const { refreshToken } = refreshInput.parse(request.body);
+    const { data, error } = await publicSupabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data.session || !data.user) {
+      return response.status(401).json({ error: '로그인 세션이 만료되었습니다. 다시 로그인해 주세요.' });
+    }
+    const loginId = typeof data.user.user_metadata.login_id === 'string' ? data.user.user_metadata.login_id : '';
+    if (!loginId) return response.status(401).json({ error: '로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.' });
     return response.json(sessionResponse(
       data.user.id,
       loginId,
