@@ -44,7 +44,24 @@ export default function App() {
   if (restoring) return <Loading label="계정을 확인하고 있어요" />;
   if (session) return <Marketplace session={session} onSignOut={async () => { await clearSession(); setSession(null); }} />;
   const signingUp = mode === 'sign-up';
-  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={s.login}><Brand /><Text style={s.loginTitle}>{signingUp ? '회원가입' : '로그인'}</Text><Text style={s.loginSub}>{signingUp ? 'RAMarket에서 RAM 거래를 시작하세요.' : '계정으로 안전하게 거래를 이어가세요.'}</Text><Label text="아이디" /><TextInput value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} style={s.input} placeholder="아이디를 입력하세요" placeholderTextColor="#89948F" /><Label text="비밀번호" /><TextInput value={password} onChangeText={setPassword} secureTextEntry style={s.input} placeholder="비밀번호를 입력하세요" placeholderTextColor="#89948F" />{signingUp && <><Label text="비밀번호 확인" /><TextInput value={confirmation} onChangeText={setConfirmation} secureTextEntry style={s.input} placeholder="비밀번호를 한 번 더 입력하세요" placeholderTextColor="#89948F" /></>}{error ? <Text style={s.error}>{error}</Text> : null}<Pressable disabled={submitting} onPress={submit} style={[s.primary, submitting && s.disabled]}>{submitting ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>{signingUp ? '회원가입' : '로그인'}</Text>}</Pressable><Pressable onPress={() => { setMode(signingUp ? 'sign-in' : 'sign-up'); setError(''); setPassword(''); setConfirmation(''); }} style={s.secondary}><Text style={s.secondaryText}>{signingUp ? '로그인으로 돌아가기' : '회원가입'}</Text></Pressable></ScrollView></KeyboardAvoidingView></SafeAreaView>;
+  return <SafeAreaView style={s.safe}>
+    <StatusBar style="dark" />
+    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView contentContainerStyle={s.login}>
+        <Brand />
+        <Text style={s.loginTitle}>{signingUp ? '회원가입' : '로그인'}</Text>
+        <Text style={s.loginSub}>{signingUp ? 'RAMarket에서 RAM 거래를 시작하세요.' : '계정으로 안전하게 거래를 이어가세요.'}</Text>
+        <Label text="아이디" />
+        <TextInput value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} style={s.input} placeholder="아이디를 입력하세요" placeholderTextColor="#89948F" />
+        <Label text="비밀번호" />
+        <TextInput value={password} onChangeText={setPassword} secureTextEntry style={s.input} placeholder="비밀번호를 입력하세요" placeholderTextColor="#89948F" />
+        {signingUp && <><Label text="비밀번호 확인" /><TextInput value={confirmation} onChangeText={setConfirmation} secureTextEntry style={s.input} placeholder="비밀번호를 한 번 더 입력하세요" placeholderTextColor="#89948F" /></>}
+        {error ? <Text style={s.error}>{error}</Text> : null}
+        <Pressable disabled={submitting} onPress={submit} style={[s.primary, { marginTop: 18 }, submitting && s.disabled]}>{submitting ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>{signingUp ? '회원가입' : '로그인'}</Text>}</Pressable>
+        <Pressable onPress={() => { setMode(signingUp ? 'sign-in' : 'sign-up'); setError(''); setPassword(''); setConfirmation(''); }} style={s.secondary}><Text style={s.secondaryText}>{signingUp ? '로그인으로 돌아가기' : '회원가입'}</Text></Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  </SafeAreaView>;
 }
 
 function Marketplace({ session, onSignOut }: { session: AuthSession; onSignOut: () => Promise<void> }) {
@@ -103,7 +120,15 @@ function ChatRoom({ session, target, onBack }: { session: AuthSession; target: C
   async function reload() { setLoading(true); try { setMessages(await chatApi.messages(target.product.id, target.otherUser.id, session)); } catch (caught) { setError(caught instanceof Error ? caught.message : '대화를 불러오지 못했습니다.'); } finally { setLoading(false); } }
   useEffect(() => { reload(); }, [target.product.id, target.otherUser.id]);
   async function send() { const content = value.trim(); if (!content || sending) return; setSending(true); setError(''); try { const message = await chatApi.send(target.product.id, target.otherUser.id, content, session); setMessages((current) => [...current, message]); setValue(''); } catch (caught) { setError(caught instanceof Error ? caught.message : '메시지를 보내지 못했습니다.'); } finally { setSending(false); } }
-  return <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><TopBar title={target.otherUser.nickname} onBack={onBack} /><View style={s.chatProduct}><Text numberOfLines={1} style={s.chatProductTitle}>{target.product.title}</Text><Text style={s.chatProductPrice}>{price(target.product.askingPrice)}</Text></View><ScrollView contentContainerStyle={s.messages}>{loading ? <Loading label="대화를 불러오는 중이에요" /> : messages.length ? messages.map((message) => <View key={message.id} style={[s.bubble, message.senderId === session.user.id ? s.mine : s.other]}><Text style={[s.bubbleText, message.senderId === session.user.id && s.mineText]}>{message.content}</Text><Text style={[s.bubbleTime, message.senderId === session.user.id && s.mineText]}>{time(message.createdAt)}</Text></View>) : <Text style={s.noMessages}>첫 메시지로 거래를 시작해 보세요.</Text>}</ScrollView>{error ? <Text style={s.chatError}>{error}</Text> : null}<View style={s.composer}><TextInput value={value} onChangeText={setValue} style={s.messageInput} placeholder="메시지를 입력하세요" placeholderTextColor="#89948F" multiline maxLength={2000} /><Pressable disabled={sending || !value.trim()} onPress={send} style={[s.send, (sending || !value.trim()) && s.disabled]}><Text style={s.sendText}>전송</Text></Pressable></View></KeyboardAvoidingView>;
+  return <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
+    <TopBar title={target.otherUser.nickname} onBack={onBack} />
+    <View style={s.chatProduct}><Text numberOfLines={1} style={s.chatProductTitle}>{target.product.title}</Text><Text style={s.chatProductPrice}>{price(target.product.askingPrice)}</Text></View>
+    <ScrollView contentContainerStyle={s.messages} keyboardShouldPersistTaps="handled">
+      {loading ? <Loading label="대화를 불러오는 중이에요" /> : messages.length ? messages.map((message) => <View key={message.id} style={[s.bubble, message.senderId === session.user.id ? s.mine : s.other]}><Text style={[s.bubbleText, message.senderId === session.user.id && s.mineText]}>{message.content}</Text><Text style={[s.bubbleTime, message.senderId === session.user.id && s.mineText]}>{time(message.createdAt)}</Text></View>) : <Text style={s.noMessages}>첫 메시지로 거래를 시작해 보세요.</Text>}
+    </ScrollView>
+    {error ? <Text style={s.chatError}>{error}</Text> : null}
+    <View style={s.composer}><TextInput value={value} onChangeText={setValue} style={s.messageInput} placeholder="메시지를 입력하세요" placeholderTextColor="#89948F" multiline maxLength={2000} /><Pressable disabled={sending || !value.trim()} onPress={send} style={[s.send, (sending || !value.trim()) && s.disabled]}><Text style={s.sendText}>전송</Text></Pressable></View>
+  </KeyboardAvoidingView>;
 }
 
 function Favorites({ products, onBack, onSelect }: { products: Product[]; onBack: () => void; onSelect: (p: Product) => void }) { return <View style={s.flex}><TopBar title="찜한 상품" onBack={onBack} /><ScrollView contentContainerStyle={s.list}>{products.length ? products.map((p) => <ProductRow key={p.id} product={p} favorite onSelect={() => onSelect(p)} onFavorite={() => undefined} />) : <Empty title="찜한 상품이 없어요" body="상품의 하트를 눌러 관심 상품을 모아 보세요." />}</ScrollView></View>; }

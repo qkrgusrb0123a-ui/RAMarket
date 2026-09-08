@@ -57,7 +57,6 @@ export type ChatThread = {
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 function requireApiBaseUrl() {
   if (!apiBaseUrl) throw new Error('클라우드 API 주소가 설정되지 않았습니다. EXPO_PUBLIC_API_BASE_URL을 확인해 주세요.');
@@ -114,22 +113,20 @@ export function imageUrl(path?: string) {
 
 export async function uploadProductImages(uris: string[], session: AuthSession) {
   if (!uris.length) return [];
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('사진 업로드 설정이 없습니다. EXPO_PUBLIC_SUPABASE_URL과 EXPO_PUBLIC_SUPABASE_ANON_KEY를 설정해 주세요.');
-  }
   const paths: string[] = [];
   for (const [index, uri] of uris.entries()) {
     const localImage = await fetch(uri);
     const blob = await localImage.blob();
-    const extension = localImage.headers.get('content-type')?.includes('png') ? 'png' : 'jpg';
-    const path = `products/${session.user.id}/${Date.now()}-${index}.${extension}`;
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/product-images/${path.split('/').map(encodeURIComponent).join('/')}`, {
+    if (blob.size > 5 * 1024 * 1024) throw new Error('사진 한 장은 5MB 이하만 등록할 수 있습니다. 더 작은 사진을 선택해 주세요.');
+    const mimeType = blob.type || localImage.headers.get('content-type') || 'image/jpeg';
+    const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/product-image`, {
       method: 'POST',
-      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${session.session.accessToken}`, 'Content-Type': blob.type || 'image/jpeg', 'x-upsert': 'false' },
+      headers: { Authorization: `Bearer ${session.session.accessToken}`, 'Content-Type': mimeType },
       body: blob
     });
-    if (!response.ok) throw new Error('사진을 클라우드 저장소에 올리지 못했습니다. 잠시 후 다시 시도해 주세요.');
-    paths.push(path);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.data?.path) throw new Error(data.error ?? '사진을 클라우드 저장소에 올리지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    paths.push(data.data.path);
   }
   return paths;
 }

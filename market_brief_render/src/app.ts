@@ -11,6 +11,7 @@ import { healthRouter } from './routes/health.js';
 import { internalRouter } from './routes/internal.js';
 import { ramPriceRouter } from './routes/prices.js';
 import { productsRouter } from './routes/products.js';
+import { uploadsRouter } from './routes/uploads.js';
 
 export const app = express();
 app.set('trust proxy', 1);
@@ -23,6 +24,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draf
 app.use('/health', healthRouter);
 app.use('/api/v1/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }), authRouter);
 app.use('/api/v1/products', productsRouter);
+app.use('/api/v1/uploads', uploadsRouter);
 app.use('/api/v1/messages', messagesRouter);
 app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/internal', internalRouter);
