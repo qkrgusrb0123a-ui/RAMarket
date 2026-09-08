@@ -61,6 +61,9 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 function requireApiBaseUrl() {
   if (!apiBaseUrl) throw new Error('클라우드 API 주소가 설정되지 않았습니다. EXPO_PUBLIC_API_BASE_URL을 확인해 주세요.');
+  if (!/^https:\/\//.test(apiBaseUrl) || /YOUR_(LOCAL_IP|RENDER_SERVICE)/i.test(apiBaseUrl)) {
+    throw new Error('EXPO_PUBLIC_API_BASE_URL에 실제 Render HTTPS 주소를 입력해 주세요. 예시 문자열은 사용할 수 없습니다.');
+  }
   return apiBaseUrl;
 }
 
@@ -69,9 +72,10 @@ function tokenHeaders(session: AuthSession) {
 }
 
 async function apiRequest<T>(path: string, session?: AuthSession, init?: RequestInit): Promise<T> {
+  const baseUrl = requireApiBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${requireApiBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers: { ...(session ? tokenHeaders(session) : {}), ...(init?.headers ?? {}) }
     });
