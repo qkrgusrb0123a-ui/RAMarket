@@ -12,6 +12,10 @@ const productInput = z.object({
   imagePaths: z.array(z.string().trim().min(1).max(500)).max(8).default([])
 });
 
+const productUpdateInput = productInput.extend({
+  status: z.enum(['active', 'reserved', 'sold', 'hidden']).optional()
+});
+
 export const productsRouter = Router();
 
 productsRouter.get('/', async (request, response, next) => {
@@ -67,6 +71,49 @@ productsRouter.post('/', requireAuth, async (request, response, next) => {
       if (imageError) throw imageError;
     }
     return response.status(201).json({ data: product });
+  } catch (error) { return next(error); }
+});
+
+productsRouter.patch('/:productId', requireAuth, async (request, response, next) => {
+  try {
+    const input = productUpdateInput.parse(request.body);
+    const supabase = supabaseForRequest(request);
+    const { data: currentProduct, error: currentProductError } = await supabase
+      .from('products')
+      .select('id')
+      .eq('id', request.params.productId)
+      .maybeSingle();
+    if (currentProductError) throw currentProductError;
+    if (!currentProduct) return response.status(404).json({ error: 'Product not found.' });
+
+    const { data: product, error } = await supabase
+      .from('products')
+      .update({
+        title: input.title,
+        description: input.description,
+        category: input.category,
+        condition: input.condition,
+        asking_price: input.askingPrice,
+        ...(input.status ? { status: input.status } : {})
+      })
+      .eq('id', request.params.productId)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    if (!product) return response.status(404).json({ error: 'Product not found.' });
+
+    const { error: deleteImagesError } = await supabase
+      .from('products_images')
+      .delete()
+      .eq('product_id', request.params.productId);
+    if (deleteImagesError) throw deleteImagesError;
+    if (input.imagePaths.length) {
+      const { error: insertImagesError } = await supabase.from('products_images').insert(
+        input.imagePaths.map((path, sortOrder) => ({ product_id: product.id, path, sort_order: sortOrder }))
+      );
+      if (insertImagesError) throw insertImagesError;
+    }
+    return response.json({ data: product });
   } catch (error) { return next(error); }
 });
 

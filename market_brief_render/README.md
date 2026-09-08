@@ -51,8 +51,10 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | POST | `/api/v1/auth/sign-in` | - | 아이디·비밀번호 로그인 후 세션 발급 |
 | GET/POST | `/api/v1/products` | POST만 필요 | 상품 목록·등록 |
 | GET | `/api/v1/products/:productId` | - | 상품 상세 |
+| PATCH | `/api/v1/products/:productId` | 필요 | 판매자 본인의 판매글 수정 |
 | PATCH | `/api/v1/products/:productId/status` | 필요 | 판매 상태 변경 |
 | GET/POST | `/api/v1/messages` | 필요 | 개인 메시지 조회·전송 |
+| GET | `/api/v1/messages/threads` | 필요 | 로그인 사용자의 1:1 대화 목록 |
 | GET | `/api/v1/ram-prices/history?ramName=<RAM명>` | - | 주간 RAM 가격 이력 |
 | POST | `/internal/ram-prices` | cron secret | 주간 RAM 가격 적재 |
 
@@ -64,7 +66,7 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 회원가입 아이디는 영문 소문자, 숫자, `_`, `-`를 사용한 4~20자이며, 이메일을 입력하거나 인증할 필요가 없습니다. API는 사용자에게 보이지 않는 내부 식별자만 만들어 Supabase Auth에 전달합니다. 비밀번호는 API나 `users` 테이블에 저장되지 않고, Supabase Auth가 안전한 단방향 해시로 `auth.users`에 저장합니다.
 
-새 Supabase 프로젝트에는 migration 세 개를 파일명 순서대로 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609070001_simplify_tables.sql`만 추가 적용하면 됩니다.
+새 Supabase 프로젝트에는 migration 네 개를 파일명 순서대로 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609080001_product_chat_persistence.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
 
 ## 이미지 업로드 규칙
 

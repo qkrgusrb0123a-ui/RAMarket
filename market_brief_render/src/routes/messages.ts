@@ -16,6 +16,17 @@ const messageInput = z.object({
 
 export const messagesRouter = Router();
 
+messagesRouter.get('/threads', requireAuth, async (request, response, next) => {
+  try {
+    const { data, error } = await supabaseForRequest(request)
+      .from('messages')
+      .select('id,product_id,sender_id,recipient_id,content,created_at,product:products!messages_product_id_fkey(id,title,asking_price,products_images(path,sort_order)),sender:users!messages_sender_id_fkey(id,nickname),recipient:users!messages_recipient_id_fkey(id,nickname)')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return response.json({ data: data ?? [] });
+  } catch (error) { return next(error); }
+});
+
 messagesRouter.get('/', requireAuth, async (request, response, next) => {
   try {
     const { productId, otherUserId } = messageQuery.parse(request.query);
