@@ -55,6 +55,8 @@ export type ChatThread = {
   createdAt: string;
 };
 
+export type UploadableImage = { uri: string; mimeType?: string | null };
+
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
 
@@ -111,17 +113,18 @@ export function imageUrl(path?: string) {
   return `${supabaseUrl}/storage/v1/object/public/product-images/${path.split('/').map(encodeURIComponent).join('/')}`;
 }
 
-export async function uploadProductImages(uris: string[], session: AuthSession) {
-  if (!uris.length) return [];
+export async function uploadProductImages(images: UploadableImage[], session: AuthSession) {
+  if (!images.length) return [];
   const paths: string[] = [];
-  for (const [index, uri] of uris.entries()) {
+  for (const image of images) {
+    const { uri } = image;
     const localImage = await fetch(uri);
     const blob = await localImage.blob();
     if (blob.size > 5 * 1024 * 1024) throw new Error('사진 한 장은 5MB 이하만 등록할 수 있습니다. 더 작은 사진을 선택해 주세요.');
-    const mimeType = blob.type || localImage.headers.get('content-type') || 'image/jpeg';
+    const mimeType = image.mimeType || blob.type || localImage.headers.get('content-type') || 'image/jpeg';
     const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/product-image`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session.session.accessToken}`, 'Content-Type': mimeType },
+      headers: { Authorization: `Bearer ${session.session.accessToken}`, 'Content-Type': 'application/octet-stream', 'X-Image-Mime-Type': mimeType },
       body: blob
     });
     const data = await response.json().catch(() => ({}));
