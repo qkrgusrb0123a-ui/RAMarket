@@ -2,7 +2,7 @@ import type { AuthSession } from './auth';
 import { File } from 'expo-file-system';
 
 type ApiProductImage = { path: string; sort_order: number };
-type ApiSeller = { id: string; nickname: string } | { id: string; nickname: string }[] | null;
+type ApiSeller = { id: string; nickname: string; avatar_url: string | null } | { id: string; nickname: string; avatar_url: string | null }[] | null;
 
 type ApiProduct = {
   id: string;
@@ -28,7 +28,7 @@ export type Product = {
   askingPrice: number;
   status: 'active' | 'reserved' | 'sold' | 'hidden';
   createdAt: string;
-  seller: { id: string; nickname: string };
+  seller: { id: string; nickname: string; avatarUrl: string | null };
   imagePaths: string[];
 };
 
@@ -103,8 +103,8 @@ async function apiRequest<T>(path: string, session?: AuthSession, init?: Request
 }
 
 function oneSeller(seller: ApiSeller) {
-  if (Array.isArray(seller)) return seller[0] ?? { id: '', nickname: '알 수 없음' };
-  return seller ?? { id: '', nickname: '알 수 없음' };
+  if (Array.isArray(seller)) return seller[0] ?? { id: '', nickname: '알 수 없음', avatar_url: null };
+  return seller ?? { id: '', nickname: '알 수 없음', avatar_url: null };
 }
 
 function productFromApi(product: ApiProduct): Product {
@@ -118,7 +118,10 @@ function productFromApi(product: ApiProduct): Product {
     askingPrice: product.asking_price,
     status: product.status,
     createdAt: product.created_at,
-    seller: oneSeller(product.seller),
+    seller: (() => {
+      const seller = oneSeller(product.seller);
+      return { id: seller.id, nickname: seller.nickname, avatarUrl: seller.avatar_url };
+    })(),
     imagePaths: [...(product.products_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((image) => image.path)
   };
 }
@@ -176,11 +179,11 @@ export const productsApi = {
   },
   async create(input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>('/api/v1/products', session, { method: 'POST', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async update(productId: string, input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session, { method: 'PATCH', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async remove(productId: string, session: AuthSession) {
     await apiRequest<unknown>(`/api/v1/products/${productId}`, session, { method: 'DELETE' });
