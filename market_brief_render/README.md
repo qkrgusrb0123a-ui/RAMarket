@@ -49,9 +49,11 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET | `/health` | - | Render 상태 확인 |
 | POST | `/api/v1/auth/sign-up` | - | 아이디·비밀번호 회원가입 후 세션 발급 |
 | POST | `/api/v1/auth/sign-in` | - | 아이디·비밀번호 로그인 후 세션 발급 |
+| GET/PATCH/DELETE | `/api/v1/auth/account` | 필요 | 계정 조회·수정·탈퇴 |
 | GET/POST | `/api/v1/products` | POST만 필요 | 상품 목록·등록 |
 | GET | `/api/v1/products/:productId` | - | 상품 상세 |
 | PATCH | `/api/v1/products/:productId` | 필요 | 판매자 본인의 판매글 수정 |
+| DELETE | `/api/v1/products/:productId` | 필요 | 판매자 본인의 판매글 삭제 |
 | PATCH | `/api/v1/products/:productId/status` | 필요 | 판매 상태 변경 |
 | GET/POST | `/api/v1/messages` | 필요 | 개인 메시지 조회·전송 |
 | GET | `/api/v1/messages/threads` | 필요 | 로그인 사용자의 1:1 대화 목록 |
@@ -79,5 +81,9 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 3. Render에서 **New → Blueprint**로 GitHub 저장소를 연결합니다. `render.yaml`이 API와 매주 월요일 03:00 UTC 가격 수집 작업을 생성합니다.
 4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `CRON_SECRET`을 입력합니다. `PRICE_FEED_URL`은 `{ "prices": [{ "ramName", "price", "source", "weekStart" }] }` 형식의 합법적인 제휴 API/자체 수집 서비스 주소를 지정할 때만 설정합니다.
 5. Render가 제공하는 API 주소를 앱의 `API_BASE_URL`로 설정합니다. GitHub의 main push마다 Render가 자동 배포하고 Actions가 타입 검사를 수행합니다.
+
+### `Route not found.`가 표시될 때
+
+`PATCH /api/v1/auth/account`, `DELETE /api/v1/products/:productId`를 포함한 관리 API는 현재 서버 코드에 등록되어 있습니다. 이 문구가 보이면 데이터베이스 문제가 아니라, 앱이 이전 Render 배포본 또는 다른 API 주소를 사용 중인 것입니다. 최신 커밋을 GitHub `main`에 push하고 Render 배포가 완료됐는지 확인한 뒤, 모바일 앱의 `EXPO_PUBLIC_API_BASE_URL`이 해당 Render 서비스 주소인지 확인합니다.
 
 가격 수집은 대상 사이트의 이용약관과 공식 API 정책을 준수해야 하므로, 특정 쇼핑몰을 무단으로 스크래핑하는 코드는 포함하지 않았습니다. `PRICE_FEED_URL` 어댑터 또는 보호된 내부 적재 API로 검증된 수집 결과만 저장합니다.

@@ -64,6 +64,16 @@ export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
 
+function errorMessage(response: Response, data: { error?: unknown }) {
+  const serverError = typeof data.error === 'string' ? data.error : undefined;
+  // A current API has DELETE /api/v1/products/:productId. The global 404
+  // response therefore indicates a stale deployment or an incorrect API URL.
+  if (response.status === 404 && serverError === 'Route not found.') {
+    return '연결된 서버에 최신 판매글 관리 기능이 배포되지 않았습니다. Render API를 최신 커밋으로 배포한 뒤 다시 시도해 주세요.';
+  }
+  return serverError ?? '요청을 처리하지 못했습니다.';
+}
+
 function requireApiBaseUrl() {
   if (!apiBaseUrl) throw new Error('클라우드 API 주소가 설정되지 않았습니다. EXPO_PUBLIC_API_BASE_URL을 확인해 주세요.');
   if (!/^https:\/\//.test(apiBaseUrl) || /YOUR_(LOCAL_IP|RENDER_SERVICE)/i.test(apiBaseUrl)) {
@@ -88,7 +98,7 @@ async function apiRequest<T>(path: string, session?: AuthSession, init?: Request
     throw new Error('클라우드 서버에 연결할 수 없습니다. API 주소와 네트워크를 확인해 주세요.');
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error ?? '요청을 처리하지 못했습니다.');
+  if (!response.ok) throw new Error(errorMessage(response, data));
   return data as T;
 }
 
