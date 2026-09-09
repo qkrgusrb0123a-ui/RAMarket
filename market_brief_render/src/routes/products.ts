@@ -6,7 +6,7 @@ import { supabaseForRequest } from '../lib/supabase.js';
 const productInput = z.object({
   title: z.string().trim().min(2).max(100),
   description: z.string().trim().min(1).max(5000),
-  category: z.string().trim().min(1).max(50),
+  category: z.string().trim().min(1).max(80),
   condition: z.enum(['new', 'like_new', 'good', 'fair']),
   askingPrice: z.coerce.number().int().nonnegative(),
   imagePaths: z.array(z.string().trim().min(1).max(500)).max(8).default([])

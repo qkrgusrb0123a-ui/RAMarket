@@ -9,6 +9,7 @@ export default {
     ios: { supportsTablet: true, bundleIdentifier: 'com.ramarket.mobile' },
     android: {
       package: 'com.ramarket.mobile',
+      softwareKeyboardLayoutMode: 'resize',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: './assets/android-icon-foreground.png',
