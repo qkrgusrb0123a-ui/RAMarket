@@ -130,3 +130,18 @@ productsRouter.patch('/:productId/status', requireAuth, async (request, response
     return response.json({ data });
   } catch (error) { return next(error); }
 });
+
+productsRouter.delete('/:productId', requireAuth, async (request, response, next) => {
+  try {
+    const { data, error } = await supabaseForRequest(request)
+      .from('products')
+      .delete()
+      .eq('id', request.params.productId)
+      .eq('seller_id', request.userId)
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
+    return response.status(204).send();
+  } catch (error) { return next(error); }
+});

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { adminSupabase, publicSupabase } from '../lib/supabase.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const loginIdSchema = z.string()
   .trim()
@@ -24,6 +25,11 @@ const signInInput = z.object({
 
 const refreshInput = z.object({
   refreshToken: z.string().min(1)
+});
+const accountUpdateInput = z.object({
+  nickname: z.string().trim().min(2).max(30),
+  password: passwordSchema.optional(),
+  avatarUrl: z.string().trim().min(1).max(500).nullable().optional()
 });
 
 /**
@@ -125,4 +131,51 @@ authRouter.post('/refresh', async (request, response, next) => {
   } catch (error) {
     return next(error);
   }
+});
+
+authRouter.get('/account', requireAuth, async (request, response, next) => {
+  try {
+    const { data, error } = await adminSupabase.from('users').select('login_id,nickname,avatar_url').eq('id', request.userId).maybeSingle();
+    if (error) throw error;
+    if (!data) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
+    return response.json({ data: { loginId: data.login_id, nickname: data.nickname, avatarUrl: data.avatar_url } });
+  } catch (error) { return next(error); }
+});
+
+authRouter.patch('/account', requireAuth, async (request, response, next) => {
+  try {
+    const input = accountUpdateInput.parse(request.body);
+    const userId = request.userId;
+    if (!userId) return response.status(401).json({ error: '로그인이 필요합니다.' });
+    const { data: current, error: currentError } = await adminSupabase.from('users').select('login_id').eq('id', userId).maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
+    const { error: authError } = await adminSupabase.auth.admin.updateUserById(userId, {
+      ...(input.password ? { password: input.password } : {}),
+      user_metadata: { login_id: current.login_id, nickname: input.nickname, avatar_url: input.avatarUrl ?? null }
+    });
+    if (authError) throw authError;
+    const { data, error } = await adminSupabase.from('users').update({ nickname: input.nickname, avatar_url: input.avatarUrl ?? null }).eq('id', userId).select('login_id,nickname,avatar_url').single();
+    if (error) throw error;
+    return response.json({ data: { loginId: data.login_id, nickname: data.nickname, avatarUrl: data.avatar_url } });
+  } catch (error) { return next(error); }
+});
+
+authRouter.delete('/account', requireAuth, async (request, response, next) => {
+  try {
+    const userId = request.userId;
+    if (!userId) return response.status(401).json({ error: '로그인이 필요합니다.' });
+    const { data: ownedProducts, error: productsError } = await adminSupabase.from('products').select('id').eq('seller_id', userId);
+    if (productsError) throw productsError;
+    const productIds = (ownedProducts ?? []).map((product) => product.id);
+    const { error: messagesError } = await adminSupabase.from('messages').delete().or('sender_id.eq.' + userId + ',recipient_id.eq.' + userId);
+    if (messagesError) throw messagesError;
+    if (productIds.length) {
+      const { error } = await adminSupabase.from('products').delete().in('id', productIds);
+      if (error) throw error;
+    }
+    const { error } = await adminSupabase.auth.admin.deleteUser(userId);
+    if (error) throw error;
+    return response.status(204).send();
+  } catch (error) { return next(error); }
 });

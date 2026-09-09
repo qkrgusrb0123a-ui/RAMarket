@@ -142,6 +142,23 @@ export async function uploadProductImages(images: UploadableImage[], session: Au
   return paths;
 }
 
+export async function uploadProfileImage(image: UploadableImage, session: AuthSession) {
+  if (image.fileSize && image.fileSize > 5 * 1024 * 1024) throw new Error('프로필 사진은 5MB 이하만 등록할 수 있습니다.');
+  const mimeType = image.mimeType === 'image/jpg' ? 'image/jpeg' : image.mimeType || 'image/jpeg';
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+  const formData = new FormData();
+  formData.append('image', new File(image.uri), 'profile.' + extension);
+  formData.append('mimeType', mimeType);
+  const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/profile-image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.session.accessToken}` },
+    body: formData
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.data?.path) throw new Error(data.error ?? '프로필 사진을 올리지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  return data.data.path as string;
+}
+
 export const productsApi = {
   async list(session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products?limit=50', session);
@@ -154,6 +171,9 @@ export const productsApi = {
   async update(productId: string, input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session, { method: 'PATCH', body: JSON.stringify(input) });
     return productFromApi({ ...result.data, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+  },
+  async remove(productId: string, session: AuthSession) {
+    await apiRequest<unknown>(`/api/v1/products/${productId}`, session, { method: 'DELETE' });
   }
 };
 
