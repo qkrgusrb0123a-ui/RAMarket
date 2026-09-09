@@ -9,6 +9,7 @@ type ApiProduct = {
   title: string;
   description: string;
   category: string;
+  product_type: 'desktop' | 'laptop';
   condition: 'new' | 'like_new' | 'good' | 'fair';
   asking_price: number;
   status: 'active' | 'reserved' | 'sold' | 'hidden';
@@ -22,6 +23,7 @@ export type Product = {
   title: string;
   description: string;
   category: string;
+  productType: 'desktop' | 'laptop';
   condition: 'new' | 'like_new' | 'good' | 'fair';
   askingPrice: number;
   status: 'active' | 'reserved' | 'sold' | 'hidden';
@@ -34,6 +36,7 @@ export type ProductInput = {
   title: string;
   description: string;
   category: string;
+  productType: 'desktop' | 'laptop';
   condition: 'new' | 'like_new' | 'good' | 'fair';
   askingPrice: number;
   imagePaths: string[];
@@ -100,6 +103,7 @@ function productFromApi(product: ApiProduct): Product {
     title: product.title,
     description: product.description,
     category: product.category,
+    productType: product.product_type,
     condition: product.condition,
     askingPrice: product.asking_price,
     status: product.status,

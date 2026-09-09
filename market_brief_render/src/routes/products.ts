@@ -7,6 +7,7 @@ const productInput = z.object({
   title: z.string().trim().min(2).max(100),
   description: z.string().trim().min(1).max(5000),
   category: z.string().trim().min(1).max(80),
+  productType: z.enum(['desktop', 'laptop']),
   condition: z.enum(['new', 'like_new', 'good', 'fair']),
   askingPrice: z.coerce.number().int().nonnegative(),
   imagePaths: z.array(z.string().trim().min(1).max(500)).max(8).default([])
@@ -26,7 +27,7 @@ productsRouter.get('/', async (request, response, next) => {
     const query = typeof request.query.q === 'string' ? request.query.q.trim() : undefined;
     let statement = supabaseForRequest(request)
       .from('products')
-      .select('id,title,description,category,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)', { count: 'exact' })
+      .select('id,title,description,category,product_type,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)', { count: 'exact' })
       .eq('status', 'active')
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
@@ -42,7 +43,7 @@ productsRouter.get('/:productId', async (request, response, next) => {
   try {
     const { data, error } = await supabaseForRequest(request)
       .from('products')
-      .select('id,title,description,category,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)')
+      .select('id,title,description,category,product_type,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)')
       .eq('id', request.params.productId)
       .maybeSingle();
     if (error) throw error;
@@ -60,6 +61,7 @@ productsRouter.post('/', requireAuth, async (request, response, next) => {
       title: input.title,
       description: input.description,
       category: input.category,
+      product_type: input.productType,
       condition: input.condition,
       asking_price: input.askingPrice
     }).select().single();
@@ -92,6 +94,7 @@ productsRouter.patch('/:productId', requireAuth, async (request, response, next)
         title: input.title,
         description: input.description,
         category: input.category,
+        product_type: input.productType,
         condition: input.condition,
         asking_price: input.askingPrice,
         ...(input.status ? { status: input.status } : {})
