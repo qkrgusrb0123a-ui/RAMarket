@@ -166,11 +166,11 @@ export const productsApi = {
   },
   async create(input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>('/api/v1/products', session, { method: 'POST', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async update(productId: string, input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session, { method: 'PATCH', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async remove(productId: string, session: AuthSession) {
     await apiRequest<unknown>(`/api/v1/products/${productId}`, session, { method: 'DELETE' });
