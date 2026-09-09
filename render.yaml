@@ -20,6 +20,10 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
       - key: CRON_SECRET
         sync: false
       - key: PRICE_FEED_URL

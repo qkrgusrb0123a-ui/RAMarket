@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RAMarket 관리자</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login-view" class="login-card">
+        <p class="eyebrow">RAMARKET</p>
+        <h1>관리자 페이지</h1>
+        <p>관리자 비밀번호를 입력해 신고 내역을 관리하세요.</p>
+        <form id="login-form">
+          <label for="password">관리자 비밀번호</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+          <p id="login-error" class="error" role="alert"></p>
+          <button type="submit">관리자 페이지 열기</button>
+        </form>
+      </section>
+
+      <section id="dashboard" hidden>
+        <header>
+          <div><p class="eyebrow">RAMARKET</p><h1>신고 관리</h1></div>
+          <button id="sign-out" class="quiet">로그아웃</button>
+        </header>
+        <nav aria-label="신고 구분"><button class="tab active" data-type="product">신고된 게시글</button><button class="tab" data-type="chat">신고된 채팅</button></nav>
+        <p id="page-error" class="error" role="alert"></p>
+        <p id="empty" class="empty" hidden>접수된 신고가 없습니다.</p>
+        <div id="report-list" class="report-list"></div>
+      </section>
+    </main>
+    <dialog id="conversation-dialog"><article><div class="dialog-header"><h2 id="conversation-title">채팅 내용</h2><button id="close-dialog" class="quiet" aria-label="닫기">×</button></div><div id="conversation" class="conversation"></div></article></dialog>
+    <script src="/admin/admin.js" defer></script>
+  </body>
+</html>

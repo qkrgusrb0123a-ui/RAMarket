@@ -59,6 +59,8 @@ export type ChatThread = {
   createdAt: string;
 };
 
+export type ReportTargetType = 'product' | 'chat';
+
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
@@ -187,6 +189,12 @@ export const productsApi = {
   },
   async remove(productId: string, session: AuthSession) {
     await apiRequest<unknown>(`/api/v1/products/${productId}`, session, { method: 'DELETE' });
+  }
+};
+
+export const reportsApi = {
+  async submit(input: { targetType: ReportTargetType; productId: string; reportedUserId: string }, session: AuthSession) {
+    return apiRequest<{ data: { id: string; alreadyReported: boolean } }>('/api/v1/reports', session, { method: 'POST', body: JSON.stringify(input) });
   }
 };
 

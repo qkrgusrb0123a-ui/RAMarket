@@ -40,7 +40,7 @@ supabase db push
 
 CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일을 파일명 순서대로 실행합니다. 기존 DB에는 새 migration만 한 번 실행합니다.
 
-최종 테이블은 `users`, `products`, `products_images`, `messages`, `ram_price`의 다섯 개입니다. 관계는 `users → products → products_images`, `users/products → messages`이며, `ram_price`는 상품 판매글과 분리된 주간 시세 데이터입니다.
+최종 테이블은 `users`, `products`, `products_images`, `messages`, `reports`, `ram_price`입니다. `reports`는 앱 클라이언트에서 직접 읽을 수 없으며, 관리자 API만 접근합니다.
 
 ## 주요 API
 
@@ -57,6 +57,12 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | PATCH | `/api/v1/products/:productId/status` | 필요 | 판매 상태 변경 |
 | GET/POST | `/api/v1/messages` | 필요 | 개인 메시지 조회·전송 |
 | GET | `/api/v1/messages/threads` | 필요 | 로그인 사용자의 1:1 대화 목록 |
+| POST | `/api/v1/reports` | 필요 | 판매글 또는 참여 중인 1:1 채팅 신고 |
+| POST | `/api/v1/admin/session` | 관리자 비밀번호 | 관리자 웹 세션 발급 |
+| GET | `/api/v1/admin/reports?targetType=product\|chat` | 관리자 | 분리된 신고 목록 조회 |
+| DELETE | `/api/v1/admin/products/:productId` | 관리자 | 게시글과 해당 채팅 삭제 |
+| PATCH | `/api/v1/admin/users/:userId/status` | 관리자 | 활동 정지/정지 해제 |
+| DELETE | `/api/v1/admin/users/:userId` | 관리자 | 계정과 해당 판매글·채팅 영구 삭제 |
 | GET | `/api/v1/ram-prices/history?ramName=<RAM명>` | - | 주간 RAM 가격 이력 |
 | POST | `/internal/ram-prices` | cron secret | 주간 RAM 가격 적재 |
 
@@ -68,7 +74,19 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 회원가입 아이디는 영문 소문자, 숫자, `_`, `-`를 사용한 4~20자이며, 이메일을 입력하거나 인증할 필요가 없습니다. API는 사용자에게 보이지 않는 내부 식별자만 만들어 Supabase Auth에 전달합니다. 비밀번호는 API나 `users` 테이블에 저장되지 않고, Supabase Auth가 안전한 단방향 해시로 `auth.users`에 저장합니다.
 
-새 Supabase 프로젝트에는 migration 네 개를 파일명 순서대로 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609080001_product_chat_persistence.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
+새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609090004_reports_and_moderation.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
+
+## 관리자 웹 페이지와 비밀번호 설정
+
+관리자 페이지는 회원가입/관리자 계정 테이블 없이 **비밀번호 하나**로만 열립니다. 실제 비밀번호는 저장하지 않고 `scrypt` 단방향 해시만 서버 환경변수에 둡니다.
+
+1. `market_brief_render`에서 `pnpm run admin:password`를 실행하고, 12자 이상의 새 관리자 비밀번호를 입력합니다.
+2. 출력된 `ADMIN_PASSWORD_HASH=...` 전체를 서버의 `.env`와 Render의 `ADMIN_PASSWORD_HASH` 환경변수에 붙여넣습니다.
+3. `ADMIN_SESSION_SECRET`에는 32자 이상의 무작위 값을 넣습니다. 예: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
+4. Supabase migration `202609090004_reports_and_moderation.sql`을 적용하고 API를 배포합니다.
+5. 브라우저에서 `https://<Render-API-주소>/admin`을 열고, 1단계에서 정한 평문 비밀번호를 입력합니다.
+
+관리자 세션은 브라우저를 닫으면 삭제되는 `sessionStorage`에만 저장되고 4시간 후 만료됩니다. 비밀번호, service role key, `ADMIN_SESSION_SECRET`은 모바일 앱이나 Git에 절대 저장하지 마세요. 활동 정지 계정은 기존 토큰이 있어도 API 호출과 재로그인이 차단됩니다.
 
 ## 이미지 업로드 규칙
 

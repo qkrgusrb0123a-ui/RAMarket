@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "job:weekly-prices": "tsx src/jobs/weekly-price-job.ts",
+    "admin:password": "tsx src/scripts/generate-admin-password.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },

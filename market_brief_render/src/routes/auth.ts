@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { adminSupabase, publicSupabase } from '../lib/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
+import { permanentlyDeleteAccount } from '../services/account-removal.js';
 
 const loginIdSchema = z.string()
   .trim()
@@ -46,6 +47,12 @@ function sessionResponse(userId: string, loginId: string, accessToken: string, r
     user: { id: userId, loginId },
     session: { accessToken, refreshToken, expiresIn: expiresIn ?? 0 }
   };
+}
+
+async function ensureAccountIsActive(userId: string) {
+  const { data, error } = await adminSupabase.from('users').select('status').eq('id', userId).maybeSingle();
+  if (error) throw error;
+  return data?.status !== 'suspended';
 }
 
 export const authRouter = Router();
@@ -99,6 +106,9 @@ authRouter.post('/sign-in', async (request, response, next) => {
     if (error || !data.session || !data.user) {
       return response.status(401).json({ error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
     }
+    if (!await ensureAccountIsActive(data.user.id)) {
+      return response.status(403).json({ error: '활동이 정지된 계정입니다. 관리자에게 문의해 주세요.' });
+    }
 
     return response.json(sessionResponse(
       data.user.id,
@@ -118,6 +128,9 @@ authRouter.post('/refresh', async (request, response, next) => {
     const { data, error } = await publicSupabase.auth.refreshSession({ refresh_token: refreshToken });
     if (error || !data.session || !data.user) {
       return response.status(401).json({ error: '로그인 세션이 만료되었습니다. 다시 로그인해 주세요.' });
+    }
+    if (!await ensureAccountIsActive(data.user.id)) {
+      return response.status(403).json({ error: '활동이 정지된 계정입니다. 관리자에게 문의해 주세요.' });
     }
     const loginId = typeof data.user.user_metadata.login_id === 'string' ? data.user.user_metadata.login_id : '';
     if (!loginId) return response.status(401).json({ error: '로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.' });
@@ -165,17 +178,7 @@ authRouter.delete('/account', requireAuth, async (request, response, next) => {
   try {
     const userId = request.userId;
     if (!userId) return response.status(401).json({ error: '로그인이 필요합니다.' });
-    const { data: ownedProducts, error: productsError } = await adminSupabase.from('products').select('id').eq('seller_id', userId);
-    if (productsError) throw productsError;
-    const productIds = (ownedProducts ?? []).map((product) => product.id);
-    const { error: messagesError } = await adminSupabase.from('messages').delete().or('sender_id.eq.' + userId + ',recipient_id.eq.' + userId);
-    if (messagesError) throw messagesError;
-    if (productIds.length) {
-      const { error } = await adminSupabase.from('products').delete().in('id', productIds);
-      if (error) throw error;
-    }
-    const { error } = await adminSupabase.auth.admin.deleteUser(userId);
-    if (error) throw error;
+    await permanentlyDeleteAccount(userId);
     return response.status(204).send();
   } catch (error) { return next(error); }
 });

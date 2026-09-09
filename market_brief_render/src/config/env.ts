@@ -13,6 +13,8 @@ const environmentSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000,http://localhost:8081'),
+  ADMIN_PASSWORD_HASH: z.string().regex(/^scrypt\$[0-9a-f]+\$[0-9a-f]+$/, 'ADMIN_PASSWORD_HASH must be generated with pnpm run admin:password.'),
+  ADMIN_SESSION_SECRET: z.string().min(32),
   CRON_SECRET: z.string().min(24).optional(),
   PRICE_FEED_URL: optionalUrl
 });
