@@ -133,15 +133,16 @@ productsRouter.patch('/:productId/status', requireAuth, async (request, response
 
 productsRouter.delete('/:productId', requireAuth, async (request, response, next) => {
   try {
-    const supabase = supabaseForRequest(request);
-    const { data: product, error: productError } = await supabase
+    // Verify ownership with the server client first. The deletion itself then
+    // bypasses RLS after authorization so an existing conversation cannot
+    // leave a seller with an undeletable listing.
+    const { data: product, error: productError } = await adminSupabase
       .from('products')
-      .select('id')
+      .select('id,seller_id')
       .eq('id', request.params.productId)
-      .eq('seller_id', request.userId)
       .maybeSingle();
     if (productError) throw productError;
-    if (!product) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
+    if (!product || product.seller_id !== request.userId) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
 
     // Messages deliberately use ON DELETE RESTRICT so a conversation is never
     // removed accidentally. Once the seller explicitly deletes the listing,
@@ -152,12 +153,14 @@ productsRouter.delete('/:productId', requireAuth, async (request, response, next
       .eq('product_id', product.id);
     if (messagesError) throw messagesError;
 
-    const { error: deleteError } = await supabase
+    const { data: deletedProduct, error: deleteError } = await adminSupabase
       .from('products')
       .delete()
       .eq('id', product.id)
-      .eq('seller_id', request.userId);
+      .select('id')
+      .maybeSingle();
     if (deleteError) throw deleteError;
+    if (!deletedProduct) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
     return response.status(204).send();
   } catch (error) { return next(error); }
 });
