@@ -50,6 +50,59 @@ adminRouter.get('/reports', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+adminRouter.delete('/reports/:reportId', async (request, response, next) => {
+  try {
+    const { data, error } = await adminSupabase.from('reports').delete().eq('id', request.params.reportId).select('id').maybeSingle();
+    if (error) throw error;
+    if (!data) return response.status(404).json({ error: '취소할 신고를 찾을 수 없습니다.' });
+    return response.status(204).send();
+  } catch (error) { return next(error); }
+});
+
+adminRouter.get('/inquiries', async (_request, response, next) => {
+  try {
+    const { data, error } = await adminSupabase
+      .from('support_inquiries')
+      .select('id,contact_label,status,created_at,updated_at,user:users!support_inquiries_user_id_fkey(id,login_id,nickname)')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    return response.json({ data: data ?? [] });
+  } catch (error) { return next(error); }
+});
+
+adminRouter.get('/inquiries/:inquiryId/messages', async (request, response, next) => {
+  try {
+    const { data: inquiry, error: inquiryError } = await adminSupabase.from('support_inquiries').select('id,contact_label,status').eq('id', request.params.inquiryId).maybeSingle();
+    if (inquiryError) throw inquiryError;
+    if (!inquiry) return response.status(404).json({ error: '문의 요청을 찾을 수 없습니다.' });
+    const { data, error } = await adminSupabase.from('support_messages').select('id,sender_role,content,created_at').eq('inquiry_id', inquiry.id).order('created_at', { ascending: true });
+    if (error) throw error;
+    return response.json({ data: { inquiry, messages: data ?? [] } });
+  } catch (error) { return next(error); }
+});
+
+adminRouter.post('/inquiries/:inquiryId/messages', async (request, response, next) => {
+  try {
+    const { content } = z.object({ content: z.string().trim().min(1).max(2000) }).parse(request.body);
+    const { data: inquiry, error: inquiryError } = await adminSupabase.from('support_inquiries').select('id,status').eq('id', request.params.inquiryId).maybeSingle();
+    if (inquiryError) throw inquiryError;
+    if (!inquiry) return response.status(404).json({ error: '문의 요청을 찾을 수 없습니다.' });
+    if (inquiry.status === 'closed') return response.status(400).json({ error: '종료된 문의에는 답변할 수 없습니다.' });
+    const { data, error } = await adminSupabase.from('support_messages').insert({ inquiry_id: inquiry.id, sender_role: 'admin', content }).select('id,sender_role,content,created_at').single();
+    if (error) throw error;
+    return response.status(201).json({ data });
+  } catch (error) { return next(error); }
+});
+
+adminRouter.patch('/inquiries/:inquiryId/close', async (request, response, next) => {
+  try {
+    const { data, error } = await adminSupabase.from('support_inquiries').update({ status: 'closed' }).eq('id', request.params.inquiryId).select('id,status').maybeSingle();
+    if (error) throw error;
+    if (!data) return response.status(404).json({ error: '문의 요청을 찾을 수 없습니다.' });
+    return response.json({ data });
+  } catch (error) { return next(error); }
+});
+
 adminRouter.get('/reports/:reportId/conversation', async (request, response, next) => {
   try {
     const { data: report, error: reportError } = await adminSupabase
@@ -88,6 +141,8 @@ adminRouter.patch('/users/:userId/suspension', async (request, response, next) =
     const { duration } = suspensionInput.parse(request.body);
     const data = await suspendUser(request.params.userId, duration);
     if (!data) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
+    const { error: reportsError } = await adminSupabase.from('reports').delete().eq('reported_user_id', request.params.userId);
+    if (reportsError) throw reportsError;
     return response.json({ data });
   } catch (error) { return next(error); }
 });
@@ -105,6 +160,8 @@ adminRouter.delete('/users/:userId', async (request, response, next) => {
     const { data: user, error: userError } = await adminSupabase.from('users').select('id').eq('id', request.params.userId).maybeSingle();
     if (userError) throw userError;
     if (!user) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
+    const { error: reportsError } = await adminSupabase.from('reports').delete().eq('reported_user_id', user.id);
+    if (reportsError) throw reportsError;
     await permanentlyDeleteAccount(user.id);
     return response.status(204).send();
   } catch (error) { return next(error); }

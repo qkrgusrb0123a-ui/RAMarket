@@ -11,9 +11,16 @@
   const dialog = document.querySelector('#conversation-dialog');
   const conversation = document.querySelector('#conversation');
   const conversationTitle = document.querySelector('#conversation-title');
+  const inquiryDialog = document.querySelector('#inquiry-dialog');
+  const inquiryTitle = document.querySelector('#inquiry-title');
+  const inquiryMessages = document.querySelector('#inquiry-messages');
+  const inquiryForm = document.querySelector('#inquiry-form');
+  const inquiryInput = document.querySelector('#inquiry-input');
+  const finishInquiry = document.querySelector('#finish-inquiry');
   const durationOptions = [['1d', '1일'], ['3d', '3일'], ['7d', '7일'], ['30d', '30일'], ['1y', '1년'], ['permanent', '무기한']];
   let currentView = 'product';
   let token = sessionStorage.getItem('ramarket-admin-token');
+  let activeInquiry = null;
 
   function text(value, fallback = '삭제된 사용자') { return typeof value === 'string' && value ? value : fallback; }
   function person(value) { const user = Array.isArray(value) ? value[0] : value; return user || null; }
@@ -54,6 +61,11 @@
   async function deleteProduct(product) {
     if (!confirm(`「${text(product.title, '판매글')}」 게시글과 연결된 채팅을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
     await request(`/products/${product.id}`, { method: 'DELETE' });
+    await loadDashboard();
+  }
+  async function ignoreReport(report) {
+    if (!confirm('이 신고 요청을 무시하고 목록에서 제거할까요?')) return;
+    await request(`/reports/${report.id}`, { method: 'DELETE' });
     await loadDashboard();
   }
   async function showConversation(report) {
@@ -100,6 +112,7 @@
       suspensionControls(reported, actions);
       actions.append(button('계정 삭제', 'danger', async () => { try { await deleteUser(reported); } catch (error) { message(error, pageError); } }));
     }
+    actions.append(button('신고 요청 취소', 'quiet', async () => { try { await ignoreReport(report); } catch (error) { message(error, pageError); } }));
     card.append(head, reporterText, actions); return card;
   }
   function suspensionCard(user) {
@@ -115,15 +128,48 @@
     actions.append(button('계정 삭제', 'danger', async () => { try { await deleteUser(user); } catch (error) { message(error, pageError); } }));
     card.append(head, actions); return card;
   }
+  function appendInquiryMessage(item) {
+    const box = document.createElement('div');
+    box.className = `message ${item.sender_role === 'admin' ? 'admin-message' : 'user-message'}`;
+    const name = document.createElement('strong'); name.textContent = item.sender_role === 'admin' ? '관리자' : '문의자';
+    const content = document.createElement('span'); content.textContent = item.content;
+    const time = document.createElement('time'); time.textContent = date(item.created_at);
+    box.append(name, content, time); inquiryMessages.append(box);
+  }
+  async function showInquiry(inquiry) {
+    const data = await request(`/inquiries/${inquiry.id}/messages`);
+    activeInquiry = data.data.inquiry;
+    inquiryTitle.textContent = `관리자 문의 · ${text(activeInquiry.contact_label, '문의자')}`;
+    inquiryMessages.replaceChildren();
+    data.data.messages.forEach(appendInquiryMessage);
+    const closed = activeInquiry.status === 'closed';
+    inquiryForm.hidden = closed;
+    finishInquiry.hidden = closed;
+    if (!data.data.messages.length) inquiryMessages.textContent = '문의 내용이 없습니다.';
+    inquiryDialog.showModal();
+  }
+  function inquiryCard(inquiry) {
+    const card = document.createElement('article'); card.className = 'report';
+    const head = document.createElement('div'); head.className = 'report-head';
+    const title = document.createElement('div');
+    const h2 = document.createElement('h2'); h2.textContent = text(inquiry.contact_label, '문의자');
+    const state = document.createElement('div'); state.className = 'meta'; state.textContent = inquiry.status === 'closed' ? '처리 완료' : '답변 대기';
+    title.append(h2, state);
+    const updated = document.createElement('div'); updated.className = 'meta'; updated.textContent = `최근 문의: ${date(inquiry.updated_at)}`;
+    head.append(title, updated);
+    const actions = document.createElement('div'); actions.className = 'actions';
+    actions.append(button(inquiry.status === 'closed' ? '문의 내용 보기' : '문의 답변하기', '', async () => { try { await showInquiry(inquiry); } catch (error) { message(error, pageError); } }));
+    card.append(head, actions); return card;
+  }
   async function loadDashboard() {
     pageError.textContent = ''; reportList.replaceChildren(); empty.hidden = true;
-    const titles = { product: '신고 관리', chat: '신고 관리', suspensions: '활동 정지 관리' };
+    const titles = { product: '신고 관리', chat: '신고 관리', suspensions: '활동 정지 관리', inquiries: '관리자 문의' };
     pageTitle.textContent = titles[currentView];
-    empty.textContent = currentView === 'suspensions' ? '활동 정지 중인 계정이 없습니다.' : '접수된 신고가 없습니다.';
+    empty.textContent = currentView === 'suspensions' ? '활동 정지 중인 계정이 없습니다.' : currentView === 'inquiries' ? '접수된 문의가 없습니다.' : '접수된 신고가 없습니다.';
     try {
-      const data = currentView === 'suspensions' ? await request('/suspensions') : await request(`/reports?targetType=${currentView}`);
+      const data = currentView === 'suspensions' ? await request('/suspensions') : currentView === 'inquiries' ? await request('/inquiries') : await request(`/reports?targetType=${currentView}`);
       if (!data.data.length) { empty.hidden = false; return; }
-      data.data.forEach((item) => reportList.append(currentView === 'suspensions' ? suspensionCard(item) : reportCard(item)));
+      data.data.forEach((item) => reportList.append(currentView === 'suspensions' ? suspensionCard(item) : currentView === 'inquiries' ? inquiryCard(item) : reportCard(item)));
     } catch (error) { message(error, pageError); }
   }
   function showDashboard() { loginView.hidden = true; dashboard.hidden = false; loadDashboard(); }
@@ -131,5 +177,20 @@
   document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { currentView = tab.dataset.view; document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === tab)); loadDashboard(); }));
   document.querySelector('#sign-out').addEventListener('click', signOut);
   document.querySelector('#close-dialog').addEventListener('click', () => dialog.close());
+  document.querySelector('#close-inquiry-dialog').addEventListener('click', () => inquiryDialog.close());
+  inquiryForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!activeInquiry) return;
+    try {
+      const data = await request(`/inquiries/${activeInquiry.id}/messages`, { method: 'POST', body: JSON.stringify({ content: inquiryInput.value }) });
+      appendInquiryMessage(data.data);
+      inquiryInput.value = '';
+      inquiryMessages.lastElementChild?.scrollIntoView({ block: 'nearest' });
+    } catch (error) { message(error, pageError); }
+  });
+  finishInquiry.addEventListener('click', async () => {
+    if (!activeInquiry || !confirm('이 문의를 처리 완료로 종료할까요?')) return;
+    try { await request(`/inquiries/${activeInquiry.id}/close`, { method: 'PATCH' }); inquiryDialog.close(); await loadDashboard(); } catch (error) { message(error, pageError); }
+  });
   if (token) showDashboard();
 })();

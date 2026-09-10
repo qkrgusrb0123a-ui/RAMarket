@@ -41,4 +41,8 @@ dialog article { padding: 22px; }
 .message { padding: 12px; border-radius: 11px; background: #edf3f0; }
 .message strong { display: block; margin-bottom: 4px; }
 .message time { display: block; margin-top: 5px; color: #68736f; font-size: 12px; }
+.message.admin-message { background: #dff1ed; }
+.message.user-message { background: #edf3f0; }
+.inquiry-composer { grid-template-columns: 1fr auto; align-items: center; }
+#finish-inquiry { margin-top: 12px; }
 @media (max-width: 560px) { .shell { width: min(100% - 24px, 1040px); margin: 25px auto; } .report { padding: 17px; } .report-head { display: block; } .report-head > .meta { margin-top: 7px; } }

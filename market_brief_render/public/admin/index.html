@@ -25,13 +25,14 @@
           <div><p class="eyebrow">RAMARKET</p><h1 id="page-title">신고 관리</h1></div>
           <button id="sign-out" class="quiet">로그아웃</button>
         </header>
-        <nav aria-label="관리 메뉴"><button class="tab active" data-view="product">신고된 게시글</button><button class="tab" data-view="chat">신고된 채팅</button><button class="tab" data-view="suspensions">활동 정지 관리</button></nav>
+        <nav aria-label="관리 메뉴"><button class="tab active" data-view="product">신고된 게시글</button><button class="tab" data-view="chat">신고된 채팅</button><button class="tab" data-view="suspensions">활동 정지 관리</button><button class="tab" data-view="inquiries">관리자 문의</button></nav>
         <p id="page-error" class="error" role="alert"></p>
         <p id="empty" class="empty" hidden>접수된 신고가 없습니다.</p>
         <div id="report-list" class="report-list"></div>
       </section>
     </main>
     <dialog id="conversation-dialog"><article><div class="dialog-header"><h2 id="conversation-title">채팅 내용</h2><button id="close-dialog" class="quiet" aria-label="닫기">×</button></div><div id="conversation" class="conversation"></div></article></dialog>
+    <dialog id="inquiry-dialog"><article><div class="dialog-header"><h2 id="inquiry-title">관리자 문의</h2><button id="close-inquiry-dialog" class="quiet" aria-label="닫기">×</button></div><div id="inquiry-messages" class="conversation"></div><form id="inquiry-form" class="inquiry-composer"><input id="inquiry-input" maxlength="2000" placeholder="답변을 입력하세요" required><button type="submit">답변 보내기</button></form><button id="finish-inquiry" class="quiet" type="button">문의 종료</button></article></dialog>
     <script src="/admin/admin.js" defer></script>
   </body>
 </html>

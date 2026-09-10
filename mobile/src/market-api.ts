@@ -60,6 +60,7 @@ export type ChatThread = {
 };
 
 export type ReportTargetType = 'product' | 'chat';
+export type SupportMessage = { id: string; senderRole: 'user' | 'admin'; content: string; createdAt: string };
 
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
@@ -195,6 +196,26 @@ export const productsApi = {
 export const reportsApi = {
   async submit(input: { targetType: ReportTargetType; productId: string; reportedUserId: string }, session: AuthSession) {
     return apiRequest<{ data: { id: string; alreadyReported: boolean } }>('/api/v1/reports', session, { method: 'POST', body: JSON.stringify(input) });
+  }
+};
+
+type ApiSupportMessage = { id: string; sender_role: 'user' | 'admin'; content: string; created_at: string };
+
+function supportMessageFromApi(message: ApiSupportMessage): SupportMessage {
+  return { id: message.id, senderRole: message.sender_role, content: message.content, createdAt: message.created_at };
+}
+
+export const supportApi = {
+  async submitGuest(content: string, loginId?: string) {
+    return apiRequest<{ data: { id: string } }>('/api/v1/support/guest', undefined, { method: 'POST', body: JSON.stringify({ content, ...(loginId ? { loginId } : {}) }) });
+  },
+  async thread(session: AuthSession) {
+    const result = await apiRequest<{ data: { id: string; status: 'open' | 'closed'; messages: ApiSupportMessage[] } | null }>('/api/v1/support/thread', session);
+    return result.data ? { ...result.data, messages: result.data.messages.map(supportMessageFromApi) } : null;
+  },
+  async send(content: string, session: AuthSession) {
+    const result = await apiRequest<{ data: ApiSupportMessage }>('/api/v1/support/messages', session, { method: 'POST', body: JSON.stringify({ content }) });
+    return supportMessageFromApi(result.data);
   }
 };
 
