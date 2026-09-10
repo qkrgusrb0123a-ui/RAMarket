@@ -1,10 +1,10 @@
 import * as SecureStore from 'expo-secure-store';
 
 export type CustomProductAlertCriteria = {
-  productType: 'any' | 'desktop' | 'laptop';
-  memoryStandard: 'any' | 'DDR4' | 'DDR5';
-  clock: 'any' | '2666MHz' | '3200MHz' | '5600MHz' | '6000MHz';
-  capacity: 'any' | '4GB' | '8GB' | '12GB' | '16GB' | '24GB' | '32GB' | '64GB' | '128GB';
+  productTypes: Array<'desktop' | 'laptop'>;
+  memoryStandards: Array<'DDR4' | 'DDR5'>;
+  clocks: Array<'2666MHz' | '3200MHz' | '5600MHz' | '6000MHz'>;
+  capacities: Array<'4GB' | '8GB' | '12GB' | '16GB' | '24GB' | '32GB' | '64GB' | '128GB'>;
 };
 
 export type AppSettings = {
@@ -20,7 +20,7 @@ export type AppSettings = {
 export const defaultAppSettings: AppSettings = {
   favoriteDiscountAlerts: true,
   customProductAlerts: false,
-  customProductAlertCriteria: { productType: 'any', memoryStandard: 'any', clock: 'any', capacity: 'any' },
+  customProductAlertCriteria: { productTypes: [], memoryStandards: [], clocks: [], capacities: [] },
   chatAlerts: true,
   doNotDisturbEnabled: false,
   doNotDisturbStartMinutes: 22 * 60,
@@ -39,13 +39,18 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
   return typeof value === 'string' && values.includes(value as T);
 }
 
+function selectedValues<T extends string>(value: unknown, values: readonly T[]): T[] {
+  const candidates = Array.isArray(value) ? value : [value];
+  return [...new Set(candidates.filter((candidate): candidate is T => isOneOf(candidate, values)))];
+}
+
 function customProductAlertCriteria(value: unknown): CustomProductAlertCriteria {
-  const saved = value && typeof value === 'object' ? value as Partial<CustomProductAlertCriteria> : {};
+  const saved = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   return {
-    productType: isOneOf(saved.productType, ['any', 'desktop', 'laptop'] as const) ? saved.productType : defaultAppSettings.customProductAlertCriteria.productType,
-    memoryStandard: isOneOf(saved.memoryStandard, ['any', 'DDR4', 'DDR5'] as const) ? saved.memoryStandard : defaultAppSettings.customProductAlertCriteria.memoryStandard,
-    clock: isOneOf(saved.clock, ['any', '2666MHz', '3200MHz', '5600MHz', '6000MHz'] as const) ? saved.clock : defaultAppSettings.customProductAlertCriteria.clock,
-    capacity: isOneOf(saved.capacity, ['any', '4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB'] as const) ? saved.capacity : defaultAppSettings.customProductAlertCriteria.capacity
+    productTypes: selectedValues(saved.productTypes ?? saved.productType, ['desktop', 'laptop'] as const),
+    memoryStandards: selectedValues(saved.memoryStandards ?? saved.memoryStandard, ['DDR4', 'DDR5'] as const),
+    clocks: selectedValues(saved.clocks ?? saved.clock, ['2666MHz', '3200MHz', '5600MHz', '6000MHz'] as const),
+    capacities: selectedValues(saved.capacities ?? saved.capacity, ['4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB'] as const)
   };
 }
 

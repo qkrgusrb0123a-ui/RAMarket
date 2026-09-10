@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
 
 function currentGitCommit() {
+  const configuredCommit = process.env.EAS_BUILD_GIT_COMMIT_HASH ?? process.env.GITHUB_SHA ?? process.env.EXPO_PUBLIC_GIT_COMMIT;
+  if (configuredCommit) return configuredCommit.slice(0, 7);
   try {
     return execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
