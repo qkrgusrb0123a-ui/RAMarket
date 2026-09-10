@@ -99,6 +99,8 @@ adminRouter.patch('/inquiries/:inquiryId/close', async (request, response, next)
     const { data, error } = await adminSupabase.from('support_inquiries').update({ status: 'closed' }).eq('id', request.params.inquiryId).select('id,status').maybeSingle();
     if (error) throw error;
     if (!data) return response.status(404).json({ error: '문의 요청을 찾을 수 없습니다.' });
+    const { error: messagesError } = await adminSupabase.from('support_messages').delete().eq('inquiry_id', data.id);
+    if (messagesError) throw messagesError;
     return response.json({ data });
   } catch (error) { return next(error); }
 });

@@ -33,17 +33,7 @@ supportRouter.get('/thread', requireAuth, async (request, response, next) => {
 
 supportRouter.delete('/thread', requireAuth, async (request, response, next) => {
   try {
-    const { data: inquiry, error: inquiryError } = await adminSupabase
-      .from('support_inquiries')
-      .select('id,status')
-      .eq('user_id', request.userId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (inquiryError) throw inquiryError;
-    if (!inquiry) return response.status(204).send();
-    if (inquiry.status !== 'closed') return response.status(400).json({ error: '종료된 문의만 삭제할 수 있습니다.' });
-    const { error } = await adminSupabase.from('support_inquiries').delete().eq('id', inquiry.id);
+    const { error } = await adminSupabase.from('support_inquiries').delete().eq('user_id', request.userId);
     if (error) throw error;
     return response.status(204).send();
   } catch (error) { return next(error); }
