@@ -3,18 +3,17 @@ export default {
     name: 'RAMarket',
     slug: 'ramarket-mobile',
     version: '1.0.0',
+    platforms: ['ios', 'android'],
     orientation: 'portrait',
-    icon: './assets/icon.png',
+    icon: './assets/app-icon-ram.png',
     userInterfaceStyle: 'light',
     ios: { supportsTablet: true, bundleIdentifier: 'com.ramarket.mobile' },
     android: {
       package: 'com.ramarket.mobile',
       softwareKeyboardLayoutMode: 'resize',
       adaptiveIcon: {
-        backgroundColor: '#E6F4FE',
-        foregroundImage: './assets/android-icon-foreground.png',
-        backgroundImage: './assets/android-icon-background.png',
-        monochromeImage: './assets/android-icon-monochrome.png'
+        backgroundColor: '#DDF4EE',
+        foregroundImage: './assets/app-icon-ram.png'
       },
       predictiveBackGestureEnabled: false
     },
