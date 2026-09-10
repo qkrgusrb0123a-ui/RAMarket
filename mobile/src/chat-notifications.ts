@@ -43,3 +43,16 @@ export async function notifyIncomingChat(senderName: string, message: string) {
     trigger: null
   });
 }
+
+export async function notifyCustomProduct(title: string, category: string) {
+  if (!permissionGranted && !(await prepareChatNotifications())) return;
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '원하는 RAM 상품이 등록됐어요',
+      body: `${category}\n${title}`,
+      sound: 'default',
+      color: '#0E766E'
+    },
+    trigger: null
+  });
+}
