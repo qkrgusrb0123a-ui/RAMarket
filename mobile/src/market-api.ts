@@ -210,6 +210,9 @@ export const supportApi = {
     const result = await apiRequest<{ data: { id: string; status: 'open' | 'closed'; messages: ApiSupportMessage[] } | null }>('/api/v1/support/thread', session);
     return result.data ? { ...result.data, messages: result.data.messages.map(supportMessageFromApi) } : null;
   },
+  async removeClosedThread(session: AuthSession) {
+    await apiRequest<unknown>('/api/v1/support/thread', session, { method: 'DELETE' });
+  },
   async send(content: string, session: AuthSession) {
     const result = await apiRequest<{ data: ApiSupportMessage }>('/api/v1/support/messages', session, { method: 'POST', body: JSON.stringify({ content }) });
     return supportMessageFromApi(result.data);
