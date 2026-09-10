@@ -55,6 +55,8 @@ export type ChatThread = {
   id: string;
   product: Pick<Product, 'id' | 'title' | 'askingPrice' | 'imagePaths'>;
   otherUser: { id: string; nickname: string };
+  lastMessageId: string;
+  lastMessageSenderId: string;
   lastMessage: string;
   createdAt: string;
 };
@@ -253,6 +255,8 @@ export const chatApi = {
           imagePaths: [...(message.product.products_images ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((image) => image.path)
         },
         otherUser,
+        lastMessageId: message.id,
+        lastMessageSenderId: message.sender_id,
         lastMessage: message.content,
         createdAt: message.created_at
       } satisfies ChatThread];

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { supabaseForRequest } from '../lib/supabase.js';
+import { adminSupabase, supabaseForRequest } from '../lib/supabase.js';
 
 const productInput = z.object({
   title: z.string().trim().min(2).max(100),
@@ -133,15 +133,31 @@ productsRouter.patch('/:productId/status', requireAuth, async (request, response
 
 productsRouter.delete('/:productId', requireAuth, async (request, response, next) => {
   try {
-    const { data, error } = await supabaseForRequest(request)
+    const supabase = supabaseForRequest(request);
+    const { data: product, error: productError } = await supabase
       .from('products')
-      .delete()
+      .select('id')
       .eq('id', request.params.productId)
       .eq('seller_id', request.userId)
-      .select('id')
       .maybeSingle();
-    if (error) throw error;
-    if (!data) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
+    if (productError) throw productError;
+    if (!product) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
+
+    // Messages deliberately use ON DELETE RESTRICT so a conversation is never
+    // removed accidentally. Once the seller explicitly deletes the listing,
+    // remove that listing's conversation first, then the listing itself.
+    const { error: messagesError } = await adminSupabase
+      .from('messages')
+      .delete()
+      .eq('product_id', product.id);
+    if (messagesError) throw messagesError;
+
+    const { error: deleteError } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', product.id)
+      .eq('seller_id', request.userId);
+    if (deleteError) throw deleteError;
     return response.status(204).send();
   } catch (error) { return next(error); }
 });

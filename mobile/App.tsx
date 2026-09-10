@@ -1,12 +1,14 @@
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, AppState, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { SafeAreaView as AndroidSafeAreaView } from 'react-native-safe-area-context';
 import { authApi, type Account, type AuthSession } from './src/auth';
 import { clearSession, loadSession, saveSession } from './src/auth-storage';
 import { loadFavoriteProductIds, saveFavoriteProductIds } from './src/favorite-storage';
 import { defaultAppSettings, loadAppSettings, saveAppSettings, type AppSettings } from './src/app-settings-storage';
+import { notifyIncomingChat, prepareChatNotifications } from './src/chat-notifications';
 import { chatApi, imageUrl, productsApi, reportsApi, supportApi, type ChatThread, type Product, type ProductInput, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
 
 const navigationIcons = {
@@ -24,6 +26,23 @@ type ChatTarget = { product: Pick<Product, 'id' | 'title' | 'askingPrice' | 'ima
 type Photo = { uri: string; mimeType?: string | null; fileSize?: number | null; storedPath?: string };
 const green = '#0E766E';
 const appVersion = String(Constants.expoConfig?.extra?.gitCommit ?? 'unknown');
+
+function AppStatusBar() {
+  return <StatusBar style="dark" />;
+}
+
+function ScreenSafeArea({ children }: { children: ReactNode }) {
+  if (Platform.OS === 'android') return <AndroidSafeAreaView style={s.safe} edges={['top', 'bottom']}>{children}</AndroidSafeAreaView>;
+  return <SafeAreaView style={s.safe}>{children}</SafeAreaView>;
+}
+
+function isDoNotDisturbActive(settings: AppSettings) {
+  if (!settings.doNotDisturbEnabled || settings.doNotDisturbStartMinutes === settings.doNotDisturbEndMinutes) return false;
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const { doNotDisturbStartMinutes: start, doNotDisturbEndMinutes: end } = settings;
+  return start < end ? currentMinutes >= start && currentMinutes < end : currentMinutes >= start || currentMinutes < end;
+}
 
 export default function App() {
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
@@ -60,8 +79,8 @@ export default function App() {
   if (session && supportOpen) return <SupportScreen session={session} onBack={() => setSupportOpen(false)} />;
   if (session) return <Marketplace session={session} onSignOut={async () => { await clearSession(); setSession(null); }} onOpenSupport={() => setSupportOpen(true)} />;
   const signingUp = mode === 'sign-up';
-  return <SafeAreaView style={s.safe}>
-    <StatusBar style="dark" />
+  return <ScreenSafeArea>
+    <AppStatusBar />
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={s.login}>
         <Brand />
@@ -78,14 +97,44 @@ export default function App() {
       </ScrollView>
     </KeyboardAvoidingView>
     <View style={s.loginFooter}><Pressable accessibilityRole="button" onPress={() => setTermsOpen(true)} style={s.loginFooterButton}><Text style={s.supportButtonText}>이용약관</Text></Pressable><Text style={s.supportButtonText}>문의 이메일: bigdurumi22@gmail.com</Text></View>
-  </SafeAreaView>;
+  </ScreenSafeArea>;
 }
 
 function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSession; onSignOut: () => Promise<void>; onOpenSupport: () => void }) {
   const [tab, setTab] = useState<Tab>('products'); const [products, setProducts] = useState<Product[]>([]); const [selected, setSelected] = useState<Product | null>(null); const [editing, setEditing] = useState<Product | 'new' | null>(null); const [favoriteIds, setFavoriteIds] = useState<string[]>([]); const [favoritesOpen, setFavoritesOpen] = useState(false); const [ownProductsOpen, setOwnProductsOpen] = useState(false); const [accountOpen, setAccountOpen] = useState(false); const [appSettingsOpen, setAppSettingsOpen] = useState(false); const [account, setAccount] = useState<Account>({ loginId: session.user.loginId, nickname: session.user.loginId, avatarUrl: null }); const [chat, setChat] = useState<ChatTarget | null>(null); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [chatReloadVersion, setChatReloadVersion] = useState(0);
-  async function reload() { setLoading(true); setLoadError(''); try { const loaded = await productsApi.list(session); setProducts(loaded); setFavoriteIds((current) => { const next = current.filter((id) => loaded.some((product) => product.id === id)); if (next.length !== current.length) saveFavoriteProductIds(session.user.id, next).catch(() => undefined); return next; }); } catch (caught) { setLoadError(caught instanceof Error ? caught.message : '상품을 불러오지 못했습니다.'); } finally { setLoading(false); } }
+  const knownChatMessageIds = useRef<Set<string> | null>(null);
+  async function reload(showLoading = true) { if (showLoading) setLoading(true); setLoadError(''); try { const loaded = await productsApi.list(session); setProducts(loaded); setFavoriteIds((current) => { const next = current.filter((id) => loaded.some((product) => product.id === id)); if (next.length !== current.length) saveFavoriteProductIds(session.user.id, next).catch(() => undefined); return next; }); } catch (caught) { setLoadError(caught instanceof Error ? caught.message : '상품을 불러오지 못했습니다.'); } finally { if (showLoading) setLoading(false); } }
   useEffect(() => { reload(); loadFavoriteProductIds(session.user.id).then(setFavoriteIds).catch(() => undefined); }, [session.user.id]);
   useEffect(() => { authApi.account(session).then(setAccount).catch(() => undefined); }, [session.user.id]);
+  useEffect(() => {
+    let mounted = true;
+    let appIsActive = AppState.currentState === 'active';
+    async function checkIncomingChats() {
+      try {
+        const threads = await chatApi.threads(session);
+        if (!mounted) return;
+        const latestIds = new Set(threads.map((thread) => thread.lastMessageId));
+        if (!knownChatMessageIds.current) {
+          knownChatMessageIds.current = latestIds;
+          return;
+        }
+        const incoming = threads.filter((thread) => thread.lastMessageSenderId !== session.user.id && !knownChatMessageIds.current?.has(thread.lastMessageId));
+        knownChatMessageIds.current = latestIds;
+        if (!incoming.length) return;
+        setChatReloadVersion((current) => current + 1);
+        const settings = await loadAppSettings(session.user.id);
+        if (!mounted || !settings.chatAlerts || isDoNotDisturbActive(settings)) return;
+        await Promise.all(incoming.map((thread) => notifyIncomingChat(thread.otherUser.nickname, thread.lastMessage)));
+      } catch {
+        // A transient polling failure should not interrupt product browsing.
+      }
+    }
+    loadAppSettings(session.user.id).then((settings) => { if (settings.chatAlerts) return prepareChatNotifications(); return undefined; }).catch(() => undefined);
+    void checkIncomingChats();
+    const timer = setInterval(() => { if (appIsActive) void checkIncomingChats(); }, 20_000);
+    const subscription = AppState.addEventListener('change', (state) => { appIsActive = state === 'active'; if (appIsActive) void checkIncomingChats(); });
+    return () => { mounted = false; clearInterval(timer); subscription.remove(); knownChatMessageIds.current = null; };
+  }, [session.user.id]);
   useEffect(() => {
     const next = favoriteIds.filter((id) => products.some((product) => product.id === id));
     if (next.length !== favoriteIds.length) {
@@ -108,23 +157,25 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
   else if (accountOpen) content = <AccountScreen session={session} onBack={() => setAccountOpen(false)} onAccountUpdated={(updated) => { setAccount(updated); setProducts((current) => current.map((product) => product.seller.id === session.user.id ? { ...product, seller: { ...product.seller, nickname: updated.nickname, avatarUrl: updated.avatarUrl } } : product)); }} onSignOut={confirmSignOut} onAccountDeleted={onSignOut} />;
   else if (appSettingsOpen) content = <AppSettingsScreen userId={session.user.id} onBack={() => setAppSettingsOpen(false)} />;
   else if (chat) content = <ChatRoom session={session} target={chat} onBack={() => setChat(null)} />;
-  else if (tab === 'products') content = <ProductList products={products} favoriteIds={favoriteIds} loading={loading} error={loadError} onReload={reload} onSelect={setSelected} onFavorite={toggleFavorite} onWrite={() => setEditing('new')} />;
+  else if (tab === 'products') content = <ProductList products={products} favoriteIds={favoriteIds} loading={loading} error={loadError} onReload={() => reload(false)} onSelect={setSelected} onFavorite={toggleFavorite} onWrite={() => setEditing('new')} />;
   else if (tab === 'chat') content = <ChatList session={session} reloadVersion={chatReloadVersion} onOpen={(thread) => setChat({ product: thread.product, otherUser: thread.otherUser })} />;
   else if (tab === 'settings') content = <Settings loginId={session.user.loginId} nickname={account.nickname} avatarUrl={account.avatarUrl} favoritesCount={favorites.length} ownProductsCount={ownProducts.length} onOpenAccount={() => setAccountOpen(true)} onOpenFavorites={() => setFavoritesOpen(true)} onOpenOwnProducts={() => setOwnProductsOpen(true)} onOpenAppSettings={() => setAppSettingsOpen(true)} onOpenSupport={onOpenSupport} />;
   else content = <Empty title="주간 RAM 시세" body="메인 화면은 준비 중이에요." />;
   const showingTabScreen = !selected && !editing && !favoritesOpen && !ownProductsOpen && !accountOpen && !appSettingsOpen && !chat;
-  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.flex}>{showingTabScreen && <MainHeader active={tab} favoriteCount={favorites.length} onOpenFavorites={() => setFavoritesOpen(true)} onRefreshChats={() => setChatReloadVersion((current) => current + 1)} />}{content}</View>{showingTabScreen && <Nav active={tab} onSelect={switchTab} />}</SafeAreaView>;
+  return <ScreenSafeArea><AppStatusBar /><View style={s.flex}>{showingTabScreen && <MainHeader active={tab} favoriteCount={favorites.length} onOpenFavorites={() => setFavoritesOpen(true)} onRefreshChats={() => setChatReloadVersion((current) => current + 1)} />}{content}</View>{showingTabScreen && <Nav active={tab} onSelect={switchTab} />}</ScreenSafeArea>;
 }
 
-function ProductList({ products, favoriteIds, loading, error, onReload, onSelect, onFavorite, onWrite }: { products: Product[]; favoriteIds: string[]; loading: boolean; error: string; onReload: () => void; onSelect: (p: Product) => void; onFavorite: (id: string) => void; onWrite: () => void }) {
+function ProductList({ products, favoriteIds, loading, error, onReload, onSelect, onFavorite, onWrite }: { products: Product[]; favoriteIds: string[]; loading: boolean; error: string; onReload: () => Promise<void>; onSelect: (p: Product) => void; onFavorite: (id: string) => void; onWrite: () => void }) {
   const [search, setSearch] = useState(''); const [category, setCategory] = useState('전체'); const visible = useMemo(() => products.filter((p) => (category === '전체' || p.productType === category) && p.title.toLowerCase().includes(search.trim().toLowerCase())), [products, category, search]);
+  const [refreshing, setRefreshing] = useState(false);
+  async function refresh() { setRefreshing(true); try { await onReload(); } finally { setRefreshing(false); } }
   return <View style={s.flex}>
     <Text style={s.pageTitle}>메모리 거래</Text>
     <View style={s.searchBox}><Text style={s.searchIcon}>⌕</Text><TextInput value={search} onChangeText={setSearch} placeholder="메모리 거래를 검색하세요" placeholderTextColor="#89948F" style={s.searchInput} /></View>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0, maxHeight: 62 }} contentContainerStyle={{ alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingVertical: 11 }}>
       {[{ label: '전체', value: '전체' }, { label: '데스크탑용', value: 'desktop' }, { label: '노트북용', value: 'laptop' }].map(({ label, value }) => <Pressable key={value} onPress={() => setCategory(value)} style={[s.category, s.categoryCentered, { alignSelf: 'center', flexGrow: 0, flexShrink: 0 }, category === value && s.categoryOn]}><Text style={[s.categoryText, s.categoryTextCentered, category === value && s.categoryTextOn]}>{label}</Text></Pressable>)}
     </ScrollView>
-    <ScrollView contentContainerStyle={s.list}>{loading ? <Loading label="상품을 불러오는 중이에요" /> : error ? <Empty title="상품을 불러오지 못했어요" body={error} action="다시 시도" onAction={onReload} /> : visible.length ? visible.map((p) => <ProductRow key={p.id} product={p} favorite={favoriteIds.includes(p.id)} onSelect={() => onSelect(p)} onFavorite={() => onFavorite(p.id)} />) : <Empty title="등록된 상품이 없어요" body="첫 번째 RAM 상품을 판매해 보세요." />}</ScrollView>
+    <ScrollView contentContainerStyle={s.list} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[green]} tintColor={green} />}>{loading ? <Loading label="상품을 불러오는 중이에요" /> : error ? <Empty title="상품을 불러오지 못했어요" body={error} action="다시 시도" onAction={refresh} /> : visible.length ? visible.map((p) => <ProductRow key={p.id} product={p} favorite={favoriteIds.includes(p.id)} onSelect={() => onSelect(p)} onFavorite={() => onFavorite(p.id)} />) : <Empty title="등록된 상품이 없어요" body="첫 번째 RAM 상품을 판매해 보세요." />}</ScrollView>
     <Pressable onPress={onWrite} style={s.sell}><Text style={s.sellText}>＋  판매하기</Text></Pressable>
   </View>;
 }
@@ -245,13 +296,13 @@ function SupportScreen({ session, onBack }: { session: AuthSession; onBack: () =
   async function leave() { if (closedByAdmin) { try { await supportApi.removeThread(session); } catch { /* The user can still leave if a temporary network failure prevents cleanup. */ } } onBack(); }
   function confirmClose() { Alert.alert('문의 채팅 종료', '채팅 내역이 삭제되며 복구할 수 없습니다.', [{ text: '취소', style: 'cancel' }, { text: '종료', style: 'destructive', onPress: () => { void closeThread(); } }]); }
   async function closeThread() { try { await supportApi.removeThread(session); onBack(); } catch (caught) { setError(caught instanceof Error ? caught.message : '채팅을 종료하지 못했습니다.'); } }
-  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><TopBar title="관리자 문의" onBack={leave} lowerBack right={closedByAdmin ? undefined : <Pressable onPress={confirmClose} style={s.supportCloseButton}><Text style={s.supportCloseText}>종료</Text></Pressable>} />{<ScrollView contentContainerStyle={s.messages} keyboardShouldPersistTaps="handled">{loading ? <Loading label="문의 내역을 불러오는 중이에요" /> : messages.length ? messages.map((message) => <View key={message.id} style={[s.bubble, message.senderRole === 'user' ? s.mine : s.other]}><Text style={[s.bubbleText, message.senderRole === 'user' && s.mineText]}>{message.content}</Text><Text style={[s.bubbleTime, message.senderRole === 'user' && s.mineText]}>{time(message.createdAt)}</Text></View>) : <Text style={s.noMessages}>관리자에게 문의를 남겨 보세요.</Text>}</ScrollView>}{closedByAdmin ? <Text style={s.supportClosed}>관리자가 채팅을 종료했습니다.</Text> : error ? <Text style={s.chatError}>{error}</Text> : null}{!closedByAdmin && <View style={[s.composer, !keyboardVisible && s.supportComposer]}><TextInput value={value} onChangeText={setValue} style={s.messageInput} placeholder="문의 내용을 입력하세요" placeholderTextColor="#89948F" multiline maxLength={2000} /><Pressable disabled={sending || !value.trim()} onPress={send} style={[s.send, (sending || !value.trim()) && s.disabled]}><Text style={s.sendText}>보내기</Text></Pressable></View>}</KeyboardAvoidingView></SafeAreaView>;
+  return <ScreenSafeArea><AppStatusBar /><KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><TopBar title="관리자 문의" onBack={leave} lowerBack right={closedByAdmin ? undefined : <Pressable onPress={confirmClose} style={s.supportCloseButton}><Text style={s.supportCloseText}>종료</Text></Pressable>} />{<ScrollView contentContainerStyle={s.messages} keyboardShouldPersistTaps="handled">{loading ? <Loading label="문의 내역을 불러오는 중이에요" /> : messages.length ? messages.map((message) => <View key={message.id} style={[s.bubble, message.senderRole === 'user' ? s.mine : s.other]}><Text style={[s.bubbleText, message.senderRole === 'user' && s.mineText]}>{message.content}</Text><Text style={[s.bubbleTime, message.senderRole === 'user' && s.mineText]}>{time(message.createdAt)}</Text></View>) : <Text style={s.noMessages}>관리자에게 문의를 남겨 보세요.</Text>}</ScrollView>}{closedByAdmin ? <Text style={s.supportClosed}>관리자가 채팅을 종료했습니다.</Text> : error ? <Text style={s.chatError}>{error}</Text> : null}{!closedByAdmin && <View style={[s.composer, !keyboardVisible && s.supportComposer]}><TextInput value={value} onChangeText={setValue} style={s.messageInput} placeholder="문의 내용을 입력하세요" placeholderTextColor="#89948F" multiline maxLength={2000} /><Pressable disabled={sending || !value.trim()} onPress={send} style={[s.send, (sending || !value.trim()) && s.disabled]}><Text style={s.sendText}>보내기</Text></Pressable></View>}</KeyboardAvoidingView></ScreenSafeArea>;
 }
 
 function TermsScreen({ onBack }: { onBack: () => void }) {
   const [showDetails, setShowDetails] = useState(false);
-  if (showDetails) return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.flex}><TopBar title="거래 주의사항 상세" onBack={() => setShowDetails(false)} /><ScrollView contentContainerStyle={s.terms}><Text style={s.termsTitle}>[거래 주의사항 및 면책 안내]</Text><Text style={s.termsDetail}>① 회사는 이용자 간 중고물품 거래를 원활하게 하기 위한 중개 플랫폼을 제공하며, 회사와 이용자 사이에 매매 계약을 체결하는 것은 아닙니다.</Text><Text style={s.termsDetail}>② 물품의 상태, 가격, 인도 방법, 결제 방식 등 거래 조건은 이용자 간 합의로 결정됩니다.</Text><Text style={s.termsDetail}>③ 회사는 이용자 간 거래 과정에서 발생하는 다음 사항에 대해 책임을 지지 않습니다.</Text><Text style={s.termsList}>1. 물품의 하자, 설명과 다른 상태, 수량 부족 등 물품 자체에 관한 분쟁</Text><Text style={s.termsList}>2. 배송 과정에서의 분실, 파손, 지연 등 배송 관련 문제</Text><Text style={s.termsList}>3. 계좌이체나 현금거래 등 금전 거래 과정에서 발생하는 사기, 미입금, 과다 청구</Text><Text style={s.termsList}>4. 기타 이용자 간 신뢰 관계를 바탕으로 이루어진 거래 과정 전반의 분쟁</Text><Text style={s.termsDetail}>⑤ 회사는 이용자가 게시한 정보의 정확성, 신뢰성, 안전성을 보장하지 않습니다. 다만 회사의 고의 또는 중대한 과실로 발생한 손해는 이 조항의 적용을 받지 않을 수 있습니다.</Text></ScrollView></View></SafeAreaView>;
-  return <SafeAreaView style={s.safe}><StatusBar style="dark" /><View style={s.flex}><TopBar title="이용약관" onBack={onBack} /><ScrollView contentContainerStyle={s.terms}><Text style={s.termsTitle}>[거래 주의사항 및 면책 안내]</Text><Text style={s.termsSummary}>본 서비스는 이용자 간 중고거래를 연결하는 플랫폼이며, 모든 거래 책임은 거래 당사자에게 있습니다. 회사는 물품 상태, 거래 금액, 배송, 입금 등 거래 과정에서 발생하는 사기와 분쟁에 대해 책임을 지지 않습니다. 안전한 거래를 위해 물품 상태를 직접 확인하고, 가급적 안전결제 시스템을 이용해 주세요.</Text><Pressable onPress={() => setShowDetails(true)} style={s.termsDetailButton}><Text style={s.termsDetailButtonText}>상세보기</Text></Pressable></ScrollView></View></SafeAreaView>;
+  if (showDetails) return <ScreenSafeArea><AppStatusBar /><View style={s.flex}><TopBar title="거래 주의사항 상세" onBack={() => setShowDetails(false)} /><ScrollView contentContainerStyle={s.terms}><Text style={s.termsTitle}>[거래 주의사항 및 면책 안내]</Text><Text style={s.termsDetail}>① 회사는 이용자 간 중고물품 거래를 원활하게 하기 위한 중개 플랫폼을 제공하며, 회사와 이용자 사이에 매매 계약을 체결하는 것은 아닙니다.</Text><Text style={s.termsDetail}>② 물품의 상태, 가격, 인도 방법, 결제 방식 등 거래 조건은 이용자 간 합의로 결정됩니다.</Text><Text style={s.termsDetail}>③ 회사는 이용자 간 거래 과정에서 발생하는 다음 사항에 대해 책임을 지지 않습니다.</Text><Text style={s.termsList}>1. 물품의 하자, 설명과 다른 상태, 수량 부족 등 물품 자체에 관한 분쟁</Text><Text style={s.termsList}>2. 배송 과정에서의 분실, 파손, 지연 등 배송 관련 문제</Text><Text style={s.termsList}>3. 계좌이체나 현금거래 등 금전 거래 과정에서 발생하는 사기, 미입금, 과다 청구</Text><Text style={s.termsList}>4. 기타 이용자 간 신뢰 관계를 바탕으로 이루어진 거래 과정 전반의 분쟁</Text><Text style={s.termsDetail}>⑤ 회사는 이용자가 게시한 정보의 정확성, 신뢰성, 안전성을 보장하지 않습니다. 다만 회사의 고의 또는 중대한 과실로 발생한 손해는 이 조항의 적용을 받지 않을 수 있습니다.</Text></ScrollView></View></ScreenSafeArea>;
+  return <ScreenSafeArea><AppStatusBar /><View style={s.flex}><TopBar title="이용약관" onBack={onBack} /><ScrollView contentContainerStyle={s.terms}><Text style={s.termsTitle}>[거래 주의사항 및 면책 안내]</Text><Text style={s.termsSummary}>본 서비스는 이용자 간 중고거래를 연결하는 플랫폼이며, 모든 거래 책임은 거래 당사자에게 있습니다. 회사는 물품 상태, 거래 금액, 배송, 입금 등 거래 과정에서 발생하는 사기와 분쟁에 대해 책임을 지지 않습니다. 안전한 거래를 위해 물품 상태를 직접 확인하고, 가급적 안전결제 시스템을 이용해 주세요.</Text><Pressable onPress={() => setShowDetails(true)} style={s.termsDetailButton}><Text style={s.termsDetailButtonText}>상세보기</Text></Pressable></ScrollView></View></ScreenSafeArea>;
 }
 
 function Favorites({ products, onBack, onSelect }: { products: Product[]; onBack: () => void; onSelect: (p: Product) => void }) { return <View style={s.flex}><TopBar title="찜한 상품" onBack={onBack} /><ScrollView contentContainerStyle={s.list}>{products.length ? products.map((p) => <ProductRow key={p.id} product={p} favorite onSelect={() => onSelect(p)} onFavorite={() => undefined} />) : <Empty title="찜한 상품이 없어요" body="상품의 하트를 눌러 관심 상품을 모아 보세요." />}</ScrollView></View>; }

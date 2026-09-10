@@ -30,6 +30,7 @@ export default {
     },
     plugins: [
       'expo-secure-store',
+      ['expo-notifications', { color: '#0E766E', defaultChannel: 'chat' }],
       ['expo-image-picker', { photosPermission: '판매 상품 사진을 선택하기 위해 사진 보관함에 접근합니다.', microphonePermission: false }]
     ]
   }
