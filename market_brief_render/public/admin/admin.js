@@ -21,6 +21,7 @@
   let currentView = 'product';
   let token = sessionStorage.getItem('ramarket-admin-token');
   let activeInquiry = null;
+  let inquiryPollTimer = null;
 
   function text(value, fallback = '삭제된 사용자') { return typeof value === 'string' && value ? value : fallback; }
   function person(value) { const user = Array.isArray(value) ? value[0] : value; return user || null; }
@@ -38,7 +39,7 @@
     return data;
   }
 
-  function signOut() { token = null; sessionStorage.removeItem('ramarket-admin-token'); dashboard.hidden = true; loginView.hidden = false; password.value = ''; }
+  function signOut() { stopInquiryPolling(); token = null; sessionStorage.removeItem('ramarket-admin-token'); dashboard.hidden = true; loginView.hidden = false; password.value = ''; }
   function button(label, className, action) { const element = document.createElement('button'); element.textContent = label; if (className) element.className = className; element.addEventListener('click', action); return element; }
   function durationSelect() { const select = document.createElement('select'); select.setAttribute('aria-label', '활동 정지 기간'); durationOptions.forEach(([value, label]) => { const option = document.createElement('option'); option.value = value; option.textContent = label; select.append(option); }); return select; }
 
@@ -136,17 +137,37 @@
     const time = document.createElement('time'); time.textContent = date(item.created_at);
     box.append(name, content, time); inquiryMessages.append(box);
   }
+  function renderInquiryMessages(messages) {
+    inquiryMessages.replaceChildren();
+    if (!messages.length) inquiryMessages.textContent = '문의 내용이 없습니다.';
+    else messages.forEach(appendInquiryMessage);
+  }
+  function setInquiryControls(inquiry) {
+    const closed = inquiry.status === 'closed';
+    inquiryForm.hidden = closed;
+    finishInquiry.hidden = closed;
+  }
+  async function refreshActiveInquiry() {
+    if (!activeInquiry) return;
+    const data = await request(`/inquiries/${activeInquiry.id}/messages`);
+    if (data.data.inquiry.id !== activeInquiry.id) return;
+    activeInquiry = data.data.inquiry;
+    setInquiryControls(activeInquiry);
+    renderInquiryMessages(data.data.messages);
+  }
+  function stopInquiryPolling() { if (inquiryPollTimer) { clearInterval(inquiryPollTimer); inquiryPollTimer = null; } }
+  function startInquiryPolling() {
+    stopInquiryPolling();
+    inquiryPollTimer = setInterval(() => { if (inquiryDialog.open) refreshActiveInquiry().catch((error) => message(error, pageError)); }, 1500);
+  }
   async function showInquiry(inquiry) {
     const data = await request(`/inquiries/${inquiry.id}/messages`);
     activeInquiry = data.data.inquiry;
     inquiryTitle.textContent = `관리자 문의 · ${text(activeInquiry.contact_label, '문의자')}`;
-    inquiryMessages.replaceChildren();
-    data.data.messages.forEach(appendInquiryMessage);
-    const closed = activeInquiry.status === 'closed';
-    inquiryForm.hidden = closed;
-    finishInquiry.hidden = closed;
-    if (!data.data.messages.length) inquiryMessages.textContent = '문의 내용이 없습니다.';
+    renderInquiryMessages(data.data.messages);
+    setInquiryControls(activeInquiry);
     inquiryDialog.showModal();
+    startInquiryPolling();
   }
   function inquiryCard(inquiry) {
     const card = document.createElement('article'); card.className = 'report';
@@ -178,13 +199,14 @@
   document.querySelector('#sign-out').addEventListener('click', signOut);
   document.querySelector('#close-dialog').addEventListener('click', () => dialog.close());
   document.querySelector('#close-inquiry-dialog').addEventListener('click', () => inquiryDialog.close());
+  inquiryDialog.addEventListener('close', stopInquiryPolling);
   inquiryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!activeInquiry) return;
     try {
       const data = await request(`/inquiries/${activeInquiry.id}/messages`, { method: 'POST', body: JSON.stringify({ content: inquiryInput.value }) });
-      appendInquiryMessage(data.data);
       inquiryInput.value = '';
+      await refreshActiveInquiry();
       inquiryMessages.lastElementChild?.scrollIntoView({ block: 'nearest' });
     } catch (error) { message(error, pageError); }
   });

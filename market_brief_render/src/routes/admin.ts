@@ -77,7 +77,7 @@ adminRouter.get('/inquiries/:inquiryId/messages', async (request, response, next
     if (!inquiry) return response.status(404).json({ error: '문의 요청을 찾을 수 없습니다.' });
     const { data, error } = await adminSupabase.from('support_messages').select('id,sender_role,content,created_at').eq('inquiry_id', inquiry.id).order('created_at', { ascending: true });
     if (error) throw error;
-    return response.json({ data: { inquiry, messages: data ?? [] } });
+    return response.set('Cache-Control', 'no-store').json({ data: { inquiry, messages: data ?? [] } });
   } catch (error) { return next(error); }
 });
 

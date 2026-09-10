@@ -206,9 +206,6 @@ function supportMessageFromApi(message: ApiSupportMessage): SupportMessage {
 }
 
 export const supportApi = {
-  async submitGuest(content: string, loginId?: string) {
-    return apiRequest<{ data: { id: string } }>('/api/v1/support/guest', undefined, { method: 'POST', body: JSON.stringify({ content, ...(loginId ? { loginId } : {}) }) });
-  },
   async thread(session: AuthSession) {
     const result = await apiRequest<{ data: { id: string; status: 'open' | 'closed'; messages: ApiSupportMessage[] } | null }>('/api/v1/support/thread', session);
     return result.data ? { ...result.data, messages: result.data.messages.map(supportMessageFromApi) } : null;

@@ -58,7 +58,6 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET/POST | `/api/v1/messages` | 필요 | 개인 메시지 조회·전송 |
 | GET | `/api/v1/messages/threads` | 필요 | 로그인 사용자의 1:1 대화 목록 |
 | POST | `/api/v1/reports` | 필요 | 판매글 또는 참여 중인 1:1 채팅 신고 |
-| POST | `/api/v1/support/guest` | - | 로그인 화면의 관리자 문의 접수 |
 | GET/POST | `/api/v1/support/thread`, `/api/v1/support/messages` | 필요 | 내 관리자 문의 대화 조회·전송 |
 | POST | `/api/v1/admin/session` | 관리자 비밀번호 | 관리자 웹 세션 발급 |
 | GET | `/api/v1/admin/reports?targetType=product\|chat` | 관리자 | 분리된 신고 목록 조회 |

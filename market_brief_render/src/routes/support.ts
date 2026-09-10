@@ -1,11 +1,9 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { adminSupabase } from '../lib/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const messageInput = z.object({ content: z.string().trim().min(1).max(2000) });
-const guestMessageInput = messageInput.extend({ loginId: z.string().trim().toLowerCase().max(20).optional() });
 
 async function messagesForInquiry(inquiryId: string) {
   const { data, error } = await adminSupabase
@@ -19,28 +17,6 @@ async function messagesForInquiry(inquiryId: string) {
 
 export const supportRouter = Router();
 
-supportRouter.post('/guest', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), async (request, response, next) => {
-  try {
-    const { content, loginId } = guestMessageInput.parse(request.body);
-    let userId: string | null = null;
-    let contactLabel = loginId || '비회원';
-    if (loginId) {
-      const { data, error } = await adminSupabase.from('users').select('id,nickname,login_id').eq('login_id', loginId).maybeSingle();
-      if (error) throw error;
-      if (data) { userId = data.id; contactLabel = data.nickname || data.login_id; }
-    }
-    const { data: inquiry, error: inquiryError } = await adminSupabase
-      .from('support_inquiries')
-      .insert({ user_id: userId, contact_label: contactLabel })
-      .select('id')
-      .single();
-    if (inquiryError) throw inquiryError;
-    const { error: messageError } = await adminSupabase.from('support_messages').insert({ inquiry_id: inquiry.id, sender_role: 'user', content });
-    if (messageError) throw messageError;
-    return response.status(201).json({ data: { id: inquiry.id } });
-  } catch (error) { return next(error); }
-});
-
 supportRouter.get('/thread', requireAuth, async (request, response, next) => {
   try {
     const { data: inquiry, error } = await adminSupabase
@@ -51,7 +27,7 @@ supportRouter.get('/thread', requireAuth, async (request, response, next) => {
       .limit(1)
       .maybeSingle();
     if (error) throw error;
-    return response.json({ data: inquiry ? { ...inquiry, messages: await messagesForInquiry(inquiry.id) } : null });
+    return response.set('Cache-Control', 'no-store').json({ data: inquiry ? { ...inquiry, messages: await messagesForInquiry(inquiry.id) } : null });
   } catch (error) { return next(error); }
 });
 
