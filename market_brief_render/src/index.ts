@@ -1,7 +1,9 @@
 import { app } from './app.js';
 import { env } from './config/env.js';
+import { startSuspensionExpiryWorker } from './services/suspensions.js';
 
 const server = app.listen(env.PORT, () => console.info(`RAMarket API is listening on port ${env.PORT}`));
+startSuspensionExpiryWorker();
 
 function shutdown(signal: string) {
   console.info(`${signal} received: closing HTTP server.`);

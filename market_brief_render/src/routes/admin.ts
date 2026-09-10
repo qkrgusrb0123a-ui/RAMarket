@@ -5,10 +5,11 @@ import { adminSupabase } from '../lib/supabase.js';
 import { requireAdmin } from '../middleware/admin-auth.js';
 import { createAdminToken, passwordMatches } from '../services/admin-auth.js';
 import { permanentlyDeleteAccount } from '../services/account-removal.js';
+import { cancelSuspension, releaseExpiredSuspensions, suspendUser, suspensionDurations } from '../services/suspensions.js';
 
 const passwordInput = z.object({ password: z.string().min(1).max(256) });
 const reportFilter = z.object({ targetType: z.enum(['product', 'chat']).default('product') });
-const accountStatusInput = z.object({ status: z.enum(['active', 'suspended']) });
+const suspensionInput = z.object({ duration: z.enum(suspensionDurations) });
 
 export const adminRouter = Router();
 
@@ -22,12 +23,26 @@ adminRouter.post('/session', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, st
 
 adminRouter.use(requireAdmin);
 
+adminRouter.get('/suspensions', async (_request, response, next) => {
+  try {
+    await releaseExpiredSuspensions();
+    const { data, error } = await adminSupabase
+      .from('users')
+      .select('id,login_id,nickname,status,suspended_until')
+      .eq('status', 'suspended')
+      .order('suspended_until', { ascending: true, nullsFirst: false });
+    if (error) throw error;
+    return response.json({ data: data ?? [] });
+  } catch (error) { return next(error); }
+});
+
 adminRouter.get('/reports', async (request, response, next) => {
   try {
+    await releaseExpiredSuspensions();
     const { targetType } = reportFilter.parse(request.query);
     const { data, error } = await adminSupabase
       .from('reports')
-      .select('id,target_type,product_id,product_title,created_at,reporter:users!reports_reporter_id_fkey(id,login_id,nickname),reportedUser:users!reports_reported_user_id_fkey(id,login_id,nickname,status),product:products!reports_product_id_fkey(id,title,description,asking_price,status)')
+      .select('id,target_type,product_id,product_title,created_at,reporter:users!reports_reporter_id_fkey(id,login_id,nickname),reportedUser:users!reports_reported_user_id_fkey(id,login_id,nickname,status,suspended_until),product:products!reports_product_id_fkey(id,title,description,asking_price,status)')
       .eq('target_type', targetType)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -68,11 +83,18 @@ adminRouter.delete('/products/:productId', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
-adminRouter.patch('/users/:userId/status', async (request, response, next) => {
+adminRouter.patch('/users/:userId/suspension', async (request, response, next) => {
   try {
-    const { status } = accountStatusInput.parse(request.body);
-    const { data, error } = await adminSupabase.from('users').update({ status }).eq('id', request.params.userId).select('id,status').maybeSingle();
-    if (error) throw error;
+    const { duration } = suspensionInput.parse(request.body);
+    const data = await suspendUser(request.params.userId, duration);
+    if (!data) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
+    return response.json({ data });
+  } catch (error) { return next(error); }
+});
+
+adminRouter.delete('/users/:userId/suspension', async (request, response, next) => {
+  try {
+    const data = await cancelSuspension(request.params.userId);
     if (!data) return response.status(404).json({ error: '사용자 계정을 찾을 수 없습니다.' });
     return response.json({ data });
   } catch (error) { return next(error); }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { adminSupabase, publicSupabase } from '../lib/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { permanentlyDeleteAccount } from '../services/account-removal.js';
+import { isUserSuspended } from '../services/suspensions.js';
 
 const loginIdSchema = z.string()
   .trim()
@@ -50,9 +51,7 @@ function sessionResponse(userId: string, loginId: string, accessToken: string, r
 }
 
 async function ensureAccountIsActive(userId: string) {
-  const { data, error } = await adminSupabase.from('users').select('status').eq('id', userId).maybeSingle();
-  if (error) throw error;
-  return data?.status !== 'suspended';
+  return !(await isUserSuspended(userId));
 }
 
 export const authRouter = Router();
