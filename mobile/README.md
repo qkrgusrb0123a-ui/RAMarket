@@ -53,6 +53,16 @@ npm run web:export
 
 완성된 정적 사이트는 `mobile/dist`에 생성됩니다. 이 폴더를 Render Static Site, Netlify, Vercel 등의 정적 호스팅에 배포하고, 배포된 HTTPS 주소를 Render API의 `ALLOWED_ORIGINS`에 추가하세요. 배포 환경에서도 빌드 전에 동일한 `EXPO_PUBLIC_*` 값을 설정해야 합니다.
 
+저장소 루트의 `render.yaml`에는 `ramarket-web` Render Static Site 설정도 포함되어 있습니다. Render 대시보드의 **Blueprints**에서 이 저장소의 Blueprint를 동기화하면 웹 서비스를 생성할 수 있습니다. 생성 과정에서 아래 공개 환경변수를 입력하세요.
+
+```dotenv
+EXPO_PUBLIC_API_BASE_URL=https://YOUR_RENDER_API.onrender.com
+EXPO_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+```
+
+첫 배포가 완료되어 `https://ramarket-web.onrender.com` 주소가 만들어지면, API 서비스의 `ALLOWED_ORIGINS`에 그 주소를 추가하고 다시 배포하세요. `SUPABASE_SERVICE_ROLE_KEY`를 정적 웹 서비스에 넣으면 안 됩니다.
+
 웹의 브라우저 알림은 브라우저의 사이트 알림 권한을 허용했을 때만 표시됩니다. 이미지 선택과 상품·프로필 사진 업로드는 웹 파일 선택 창에서 그대로 사용할 수 있습니다.
 
 ## Expo Go에서 실행하기

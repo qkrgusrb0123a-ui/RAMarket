@@ -28,6 +28,26 @@ services:
         sync: false
       - key: PRICE_FEED_URL
         sync: false
+  - type: web
+    runtime: static
+    name: ramarket-web
+    rootDir: mobile
+    buildCommand: npm ci && npm run web:export
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    envVars:
+      # Expo embeds these public values into the static web bundle at build time.
+      # Set their real values in Render; never add service-role credentials here.
+      - key: EXPO_PUBLIC_API_BASE_URL
+        sync: false
+      - key: EXPO_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
   - type: cron
     name: ramarket-weekly-price-collector
     runtime: node
