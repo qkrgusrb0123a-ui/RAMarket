@@ -1,11 +1,11 @@
-import * as SecureStore from 'expo-secure-store';
+import { getItem, setItem } from './local-storage';
 
 function keyFor(userId: string) {
   return `ramarket.favorite-product-ids.${userId}`;
 }
 
 export async function loadFavoriteProductIds(userId: string): Promise<string[]> {
-  const stored = await SecureStore.getItemAsync(keyFor(userId));
+  const stored = await getItem(keyFor(userId));
   if (!stored) return [];
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -16,5 +16,5 @@ export async function loadFavoriteProductIds(userId: string): Promise<string[]> 
 }
 
 export function saveFavoriteProductIds(userId: string, productIds: string[]) {
-  return SecureStore.setItemAsync(keyFor(userId), JSON.stringify(productIds));
+  return setItem(keyFor(userId), JSON.stringify(productIds));
 }

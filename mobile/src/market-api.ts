@@ -1,5 +1,5 @@
 import type { AuthSession } from './auth';
-import { File } from 'expo-file-system';
+import { createImageFormData } from './upload-form-data';
 
 type ApiProductImage = { path: string; sort_order: number };
 type ApiSeller = { id: string; nickname: string; avatar_url: string | null } | { id: string; nickname: string; avatar_url: string | null }[] | null;
@@ -143,11 +143,7 @@ export async function uploadProductImages(images: UploadableImage[], session: Au
     if (image.fileSize && image.fileSize > 5 * 1024 * 1024) throw new Error('사진 한 장은 5MB 이하만 등록할 수 있습니다. 더 작은 사진을 선택해 주세요.');
     const mimeType = image.mimeType === 'image/jpg' ? 'image/jpeg' : image.mimeType || 'image/jpeg';
     const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
-    const formData = new FormData();
-    // Expo SDK 57 requires a real File/Blob value here; the legacy RN
-    // { uri, type, name } object causes "Unsupported FormDataPart implementation" on iOS.
-    formData.append('image', new File(image.uri), `product.${extension}`);
-    formData.append('mimeType', mimeType);
+    const formData = await createImageFormData(image, `product.${extension}`, mimeType);
     const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/product-image`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${session.session.accessToken}` },
@@ -164,9 +160,7 @@ export async function uploadProfileImage(image: UploadableImage, session: AuthSe
   if (image.fileSize && image.fileSize > 5 * 1024 * 1024) throw new Error('프로필 사진은 5MB 이하만 등록할 수 있습니다.');
   const mimeType = image.mimeType === 'image/jpg' ? 'image/jpeg' : image.mimeType || 'image/jpeg';
   const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
-  const formData = new FormData();
-  formData.append('image', new File(image.uri), 'profile.' + extension);
-  formData.append('mimeType', mimeType);
+  const formData = await createImageFormData(image, 'profile.' + extension, mimeType);
   const response = await fetch(`${requireApiBaseUrl()}/api/v1/uploads/profile-image`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${session.session.accessToken}` },

@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { getItem, setItem } from './local-storage';
 
 export type CustomProductAlertCriteria = {
   productTypes: Array<'desktop' | 'laptop'>;
@@ -55,7 +55,7 @@ function customProductAlertCriteria(value: unknown): CustomProductAlertCriteria 
 }
 
 export async function loadAppSettings(userId: string): Promise<AppSettings> {
-  const stored = await SecureStore.getItemAsync(keyFor(userId));
+  const stored = await getItem(keyFor(userId));
   if (!stored) return defaultAppSettings;
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -76,5 +76,5 @@ export async function loadAppSettings(userId: string): Promise<AppSettings> {
 }
 
 export function saveAppSettings(userId: string, settings: AppSettings) {
-  return SecureStore.setItemAsync(keyFor(userId), JSON.stringify(settings));
+  return setItem(keyFor(userId), JSON.stringify(settings));
 }

@@ -2,6 +2,8 @@
 
 Expo 기반 React Native 모바일 앱입니다.
 
+동일한 소스는 Expo Web으로도 실행할 수 있습니다. 웹에서는 로그인 세션과 설정을 해당 브라우저의 `localStorage`에 보관합니다. 기기의 암호화 저장소와는 다르므로 공용 컴퓨터에서는 반드시 로그아웃하세요.
+
 ```text
 mobile/
 ├── App.tsx                  # 로그인·회원가입 및 RAM 중고거래 상품 화면
@@ -27,7 +29,31 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 
 `SUPABASE_SERVICE_ROLE_KEY`, Render 비밀값, 실제 `.env` 파일은 모바일 앱이나 GitHub에 절대 넣으면 안 됩니다.
 
-이메일 인증 없이 아이디·비밀번호로 회원가입과 로그인을 지원합니다. 비밀번호는 기기에 저장하지 않으며, 로그인 토큰만 Expo SecureStore에 암호화해 보관합니다.
+이메일 인증 없이 아이디·비밀번호로 회원가입과 로그인을 지원합니다. 비밀번호는 저장하지 않으며, 로그인 토큰은 모바일에서 Expo SecureStore에 암호화해 보관합니다.
+
+## 웹에서 실행하기
+
+1. `mobile/.env.local`에 실제 Render API 주소와 Supabase 공개 설정값을 입력합니다. 웹에서도 `SUPABASE_SERVICE_ROLE_KEY`는 절대 넣지 않습니다.
+2. 처음 한 번만 `npm install`을 실행합니다.
+3. 아래 명령을 실행하고 표시되는 `http://localhost:8081`을 브라우저에서 엽니다.
+
+```bash
+cd mobile
+npm run web
+```
+
+Render API의 `ALLOWED_ORIGINS`에 개발 주소(`http://localhost:8081`)와 배포할 웹 주소를 쉼표로 구분해 등록해야 브라우저에서 API 호출이 허용됩니다. 기본 로컬 설정에는 `http://localhost:8081`이 포함되어 있습니다.
+
+### 정적 웹 배포 파일 만들기
+
+```bash
+cd mobile
+npm run web:export
+```
+
+완성된 정적 사이트는 `mobile/dist`에 생성됩니다. 이 폴더를 Render Static Site, Netlify, Vercel 등의 정적 호스팅에 배포하고, 배포된 HTTPS 주소를 Render API의 `ALLOWED_ORIGINS`에 추가하세요. 배포 환경에서도 빌드 전에 동일한 `EXPO_PUBLIC_*` 값을 설정해야 합니다.
+
+웹의 브라우저 알림은 브라우저의 사이트 알림 권한을 허용했을 때만 표시됩니다. 이미지 선택과 상품·프로필 사진 업로드는 웹 파일 선택 창에서 그대로 사용할 수 있습니다.
 
 ## Expo Go에서 실행하기
 

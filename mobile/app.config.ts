@@ -15,7 +15,7 @@ export default {
     name: 'RAMarket',
     slug: 'ramarket-mobile',
     version: '1.0.0',
-    platforms: ['ios', 'android'],
+    platforms: ['ios', 'android', 'web'],
     orientation: 'portrait',
     icon: './assets/app-icon-ram.png',
     userInterfaceStyle: 'light',
@@ -29,6 +29,11 @@ export default {
         foregroundImage: './assets/app-icon-ram.png'
       },
       predictiveBackGestureEnabled: false
+    },
+    web: {
+      bundler: 'metro',
+      output: 'single',
+      favicon: './assets/app-icon-ram.png'
     },
     plugins: [
       'expo-secure-store',
