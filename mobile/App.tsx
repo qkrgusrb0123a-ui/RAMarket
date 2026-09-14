@@ -9,7 +9,7 @@ import { clearSession, loadSession, saveSession } from './src/auth-storage';
 import { loadFavoriteProductIds, saveFavoriteProductIds } from './src/favorite-storage';
 import { loadChatNotifications, saveChatNotifications, type ChatNotification } from './src/notification-storage';
 import { defaultAppSettings, loadAppSettings, saveAppSettings, type AppSettings, type CustomProductAlertCriteria } from './src/app-settings-storage';
-import { notifyCustomProduct, notifyIncomingChat, prepareChatNotifications } from './src/chat-notifications';
+import { notifyCustomProduct, notifyFavoritePriceDrop, notifyIncomingChat, prepareChatNotifications } from './src/chat-notifications';
 import { adminApi, chatApi, favoritesApi, imageUrl, productsApi, reportsApi, supportApi, type AdminInquiry, type AdminReport, type AdminUser, type ChatThread, type Product, type ProductInput, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
 
 const navigationIcons = {
@@ -140,6 +140,7 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
   const [tab, setTab] = useState<Tab>('products'); const [products, setProducts] = useState<Product[]>([]); const [selected, setSelected] = useState<Product | null>(null); const [editing, setEditing] = useState<Product | 'new' | null>(null); const [favoriteIds, setFavoriteIds] = useState<string[]>([]); const [favoritesOpen, setFavoritesOpen] = useState(false); const [notificationsOpen, setNotificationsOpen] = useState(false); const [notifications, setNotifications] = useState<ChatNotification[]>([]); const [ownProductsOpen, setOwnProductsOpen] = useState(false); const [accountOpen, setAccountOpen] = useState(false); const [appSettingsOpen, setAppSettingsOpen] = useState(false); const [account, setAccount] = useState<Account>({ loginId: session.user.loginId, nickname: session.user.loginId, avatarUrl: null }); const [chat, setChat] = useState<ChatTarget | null>(null); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(''); const [chatReloadVersion, setChatReloadVersion] = useState(0);
   const knownChatMessageIds = useRef<Set<string> | null>(null);
   const knownCustomAlertProductIds = useRef<Set<string> | null>(null);
+  const knownFavoritePrices = useRef<Map<string, number> | null>(null);
   async function reload(showLoading = true) { if (showLoading) setLoading(true); setLoadError(''); try { setProducts(await productsApi.list(session)); } catch (caught) { setLoadError(caught instanceof Error ? caught.message : '상품을 불러오지 못했습니다.'); } finally { if (showLoading) setLoading(false); } }
   useEffect(() => {
     let mounted = true;
@@ -185,7 +186,7 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
         if (!incoming.length) return;
         setChatReloadVersion((current) => current + 1);
         setNotifications((current) => {
-          const fresh = incoming.filter((thread) => !current.some((notification) => notification.id === thread.lastMessageId)).map((thread) => ({ id: thread.lastMessageId, senderName: thread.otherUser.nickname, message: thread.lastMessage, createdAt: new Date().toISOString(), read: false }));
+          const fresh = incoming.filter((thread) => !current.some((notification) => notification.id === thread.lastMessageId)).map((thread) => ({ id: thread.lastMessageId, kind: 'chat' as const, senderName: thread.otherUser.nickname, message: thread.lastMessage, productId: thread.product.id, otherUserId: thread.otherUser.id, productTitle: thread.product.title, createdAt: new Date().toISOString(), read: false }));
           if (!fresh.length) return current;
           const next = [...fresh, ...current].slice(0, 100);
           saveChatNotifications(session.user.id, next).catch(() => undefined);
@@ -219,6 +220,13 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
         const matches = loaded.filter((product) => product.seller.id !== session.user.id && !knownCustomAlertProductIds.current?.has(product.id) && matchesCustomProductAlert(product, settings.customProductAlertCriteria));
         knownCustomAlertProductIds.current = latestIds;
         if (!settings.customProductAlerts || isDoNotDisturbActive(settings) || !matches.length) return;
+        setNotifications((current) => {
+          const fresh = matches.filter((product) => !current.some((notification) => notification.id === `custom-product:${product.id}`)).map((product) => ({ id: `custom-product:${product.id}`, kind: 'custom-product' as const, productId: product.id, productTitle: product.title, createdAt: new Date().toISOString(), read: false }));
+          if (!fresh.length) return current;
+          const next = [...fresh, ...current].slice(0, 100);
+          saveChatNotifications(session.user.id, next).catch(() => undefined);
+          return next;
+        });
         await Promise.all(matches.map((product) => notifyCustomProduct(product.title, product.category)));
       } catch {
         // Product polling must not interrupt marketplace use on a temporary network failure.
@@ -230,6 +238,42 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
     const subscription = AppState.addEventListener('change', (state) => { appIsActive = state === 'active'; if (appIsActive) void checkCustomProductAlerts(); });
     return () => { mounted = false; clearInterval(timer); subscription.remove(); knownCustomAlertProductIds.current = null; };
   }, [session.user.id]);
+  useEffect(() => {
+    let mounted = true;
+    let appIsActive = AppState.currentState === 'active';
+    async function checkFavoritePriceDrops() {
+      try {
+        const [settings, loaded] = await Promise.all([loadAppSettings(session.user.id), productsApi.list(session)]);
+        if (!mounted) return;
+        const watched = loaded.filter((product) => favoriteIds.includes(product.id));
+        const latestPrices = new Map(watched.map((product) => [product.id, product.askingPrice]));
+        if (!knownFavoritePrices.current) {
+          knownFavoritePrices.current = latestPrices;
+          return;
+        }
+        const drops = watched.filter((product) => {
+          const previous = knownFavoritePrices.current?.get(product.id);
+          return previous !== undefined && product.askingPrice < previous;
+        });
+        knownFavoritePrices.current = latestPrices;
+        if (!settings.favoriteDiscountAlerts || isDoNotDisturbActive(settings) || !drops.length) return;
+        setNotifications((current) => {
+          const fresh = drops.filter((product) => !current.some((notification) => notification.id === `favorite-price-drop:${product.id}:${product.askingPrice}`)).map((product) => ({ id: `favorite-price-drop:${product.id}:${product.askingPrice}`, kind: 'favorite-price-drop' as const, productId: product.id, productTitle: product.title, createdAt: new Date().toISOString(), read: false }));
+          if (!fresh.length) return current;
+          const next = [...fresh, ...current].slice(0, 100);
+          saveChatNotifications(session.user.id, next).catch(() => undefined);
+          return next;
+        });
+        await Promise.all(drops.map((product) => notifyFavoritePriceDrop(product.title)));
+      } catch {
+        // The next polling cycle retries a temporary product or network failure.
+      }
+    }
+    void checkFavoritePriceDrops();
+    const timer = setInterval(() => { if (appIsActive) void checkFavoritePriceDrops(); }, 30_000);
+    const subscription = AppState.addEventListener('change', (state) => { appIsActive = state === 'active'; if (appIsActive) void checkFavoritePriceDrops(); });
+    return () => { mounted = false; clearInterval(timer); subscription.remove(); knownFavoritePrices.current = null; };
+  }, [session.user.id, favoriteIds]);
   function toggleFavorite(id: string) {
     const active = !favoriteIds.includes(id);
     const next = active ? [...favoriteIds, id] : favoriteIds.filter((value) => value !== id);
@@ -249,24 +293,35 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
   async function save(input: ProductInput, id?: string) { const result = id ? await productsApi.update(id, input, session) : await productsApi.create(input, session); const product = result.seller.id === session.user.id ? { ...result, seller: { ...result.seller, nickname: account.nickname, avatarUrl: account.avatarUrl } } : result; setProducts((current) => id ? current.map((p) => p.id === id ? product : p) : [product, ...current]); setEditing(null); setSelected(product); }
   async function removeProduct(id: string) { await productsApi.remove(id, session); setProducts((current) => current.filter((product) => product.id !== id)); setFavoriteIds((current) => { const next = current.filter((value) => value !== id); saveFavoriteProductIds(session.user.id, next).catch(() => undefined); return next; }); setEditing(null); setSelected(null); }
   function openNotifications() { setNotificationsOpen(true); }
-  function markChatNotificationRead(messageId: string) { setNotifications((current) => { const next = current.map((notification) => notification.id === messageId ? { ...notification, read: true } : notification); saveChatNotifications(session.user.id, next).catch(() => undefined); return next; }); }
+  function markNotificationRead(notificationId: string) { setNotifications((current) => { const next = current.map((notification) => notification.id === notificationId ? { ...notification, read: true } : notification); saveChatNotifications(session.user.id, next).catch(() => undefined); return next; }); }
+  function openNotificationTarget(notification: ChatNotification) {
+    const product = notification.productId ? products.find((item) => item.id === notification.productId) : undefined;
+    markNotificationRead(notification.id);
+    setNotificationsOpen(false);
+    if (notification.kind === 'chat' && product && notification.otherUserId) {
+      setTab('chat');
+      setChat({ product, otherUser: { id: notification.otherUserId, nickname: notification.senderName ?? product.seller.nickname } });
+      return;
+    }
+    if (product) setSelected(product);
+  }
   function switchTab(next: Tab) { setTab(next); setSelected(null); setEditing(null); setFavoritesOpen(false); setNotificationsOpen(false); setOwnProductsOpen(false); setAccountOpen(false); setAppSettingsOpen(false); setChat(null); }
   const favorites = products.filter((product) => favoriteIds.includes(product.id));
   const ownProducts = products.filter((product) => product.seller.id === session.user.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   let content: ReactNode;
   if (editing) content = <ProductForm session={session} product={editing === 'new' ? undefined : editing} onBack={() => setEditing(null)} onSave={save} onDelete={editing === 'new' ? undefined : () => removeProduct(editing.id)} />;
   else if (selected) content = <ProductDetail session={session} product={selected} mine={selected.seller.id === session.user.id} favorite={favoriteIds.includes(selected.id)} onBack={() => setSelected(null)} onFavorite={() => toggleFavorite(selected.id)} onEdit={() => setEditing(selected)} onChat={() => { setSelected(null); setFavoritesOpen(false); setOwnProductsOpen(false); setTab('chat'); setChat({ product: selected, otherUser: selected.seller }); }} />;
-  else if (notificationsOpen) content = <Notifications notifications={notifications} onBack={() => setNotificationsOpen(false)} />;
+  else if (notificationsOpen) content = <Notifications notifications={notifications} onBack={() => setNotificationsOpen(false)} onOpenNotification={openNotificationTarget} />;
   else if (favoritesOpen) content = <Favorites products={favorites} onBack={() => setFavoritesOpen(false)} onSelect={setSelected} onUnfavorite={confirmUnfavorite} />;
   else if (ownProductsOpen) content = <MyProducts products={ownProducts} onBack={() => setOwnProductsOpen(false)} onSelect={setSelected} />;
   else if (accountOpen) content = <AccountScreen session={session} onBack={() => setAccountOpen(false)} onAccountUpdated={(updated) => { setAccount(updated); setProducts((current) => current.map((product) => product.seller.id === session.user.id ? { ...product, seller: { ...product.seller, nickname: updated.nickname, avatarUrl: updated.avatarUrl } } : product)); }} onSignOut={confirmSignOut} onAccountDeleted={onSignOut} />;
   else if (appSettingsOpen) content = <AppSettingsScreen userId={session.user.id} onBack={() => setAppSettingsOpen(false)} />;
   else if (chat) content = <ChatRoom session={session} target={chat} onBack={() => setChat(null)} />;
   else if (tab === 'products') content = <ProductList products={products} favoriteIds={favoriteIds} favoriteCount={favorites.length} loading={loading} error={loadError} onReload={() => reload(false)} onSelect={setSelected} onFavorite={toggleFavorite} onOpenFavorites={() => setFavoritesOpen(true)} onWrite={() => setEditing('new')} />;
-  else if (tab === 'chat') content = <ChatList session={session} favoriteCount={favorites.length} reloadVersion={chatReloadVersion} onOpen={(thread) => { markChatNotificationRead(thread.lastMessageId); setChat({ product: thread.product, otherUser: thread.otherUser }); }} onOpenFavorites={() => setFavoritesOpen(true)} />;
+  else if (tab === 'chat') content = <ChatList session={session} favoriteCount={favorites.length} reloadVersion={chatReloadVersion} onOpen={(thread) => { markNotificationRead(thread.lastMessageId); setChat({ product: thread.product, otherUser: thread.otherUser }); }} onOpenFavorites={() => setFavoritesOpen(true)} />;
   else if (tab === 'settings') content = <Settings loginId={session.user.loginId} nickname={account.nickname} avatarUrl={account.avatarUrl} favoritesCount={favorites.length} ownProductsCount={ownProducts.length} onOpenAccount={() => setAccountOpen(true)} onOpenFavorites={() => setFavoritesOpen(true)} onOpenOwnProducts={() => setOwnProductsOpen(true)} onOpenAppSettings={() => setAppSettingsOpen(true)} onOpenSupport={onOpenSupport} />;
   else content = <Empty title="주간 RAM 시세" body="메인 화면은 준비 중이에요." />;
-  const unreadChatCount = notifications.filter((notification) => !notification.read).length;
+  const unreadChatCount = notifications.filter((notification) => !notification.read && notification.kind === 'chat').length;
   const showingTabScreen = !selected && !editing && !favoritesOpen && !notificationsOpen && !ownProductsOpen && !accountOpen && !appSettingsOpen && !chat;
   return <ScreenSafeArea><AppStatusBar /><View style={s.flex}>{showingTabScreen && <MainHeader active={tab} notificationCount={unreadChatCount} onOpenNotifications={openNotifications} />}{content}</View>{showingTabScreen && <Nav active={tab} unreadChatCount={unreadChatCount} onSelect={switchTab} />}</ScreenSafeArea>;
 }
@@ -301,7 +356,7 @@ function ProductList({ products, favoriteIds, favoriteCount, loading, error, onR
 function ProductLayoutIcon({ grid }: { grid: boolean }) { return grid ? <View style={s.layoutListIcon}>{[0, 1, 2].map((item) => <View key={item} style={s.layoutListRow}><View style={s.layoutListDot} /><View style={s.layoutListLine} /></View>)}</View> : <View style={s.layoutGridIcon}>{[0, 1, 2, 3].map((item) => <View key={item} style={s.layoutGridCell} />)}</View>; }
 
 function productStatusLabel(status: Product['status']) { return status === 'reserved' ? '예약중' : status === 'sold' ? '판매완료' : '판매중'; }
-function ProductRow({ product, favorite, card = false, onSelect, onFavorite }: { product: Product; favorite: boolean; card?: boolean; onSelect: () => void; onFavorite: () => void }) { return <Pressable onPress={onSelect} style={[s.productRow, card && s.productCard]}><Thumbnail product={product} card={card} /><View style={[s.productInfo, card && s.productCardInfo]}><Text style={s.memory}>{product.category}</Text><Text numberOfLines={2} style={s.productTitle}>{product.title}</Text><View style={s.priceStatusRow}><Text style={s.price}>{price(product.askingPrice)}</Text><Text style={[s.productStatus, s.productListStatus, product.status === 'reserved' && s.productStatusReserved, product.status === 'sold' && s.productStatusSold]}>{productStatusLabel(product.status)}</Text></View><Text numberOfLines={1} style={s.meta}>{product.seller.nickname} · {relative(product.createdAt)}</Text></View><Pressable onPress={onFavorite} hitSlop={8} style={[s.heartButton, card && s.heartButtonCard]}><Text style={[s.heart, favorite && s.heartOn]}>{favorite ? '♥' : '♡'}</Text></Pressable></Pressable>; }
+function ProductRow({ product, favorite, card = false, onSelect, onFavorite }: { product: Product; favorite: boolean; card?: boolean; onSelect: () => void; onFavorite: () => void }) { return <Pressable onPress={onSelect} style={[s.productRow, card && s.productCard]}><Thumbnail product={product} card={card} /><View style={[s.productInfo, card && s.productCardInfo]}><Text style={s.memory}>{product.category}</Text><Text numberOfLines={2} style={s.productTitle}>{product.title}</Text><View style={s.priceStatusRow}><Text style={[s.productStatus, s.productListStatus, product.status === 'reserved' && s.productStatusReserved, product.status === 'sold' && s.productStatusSold]}>{productStatusLabel(product.status)}</Text><Text style={s.price}>{price(product.askingPrice)}</Text></View><Text numberOfLines={1} style={s.meta}>{product.seller.nickname} · {relative(product.createdAt)}</Text></View><Pressable onPress={onFavorite} hitSlop={8} style={[s.heartButton, card && s.heartButtonCard]}><Text style={[s.heart, favorite && s.heartOn]}>{favorite ? '♥' : '♡'}</Text></Pressable></Pressable>; }
 function ProductDetail({ session, product, mine, favorite, onBack, onFavorite, onEdit, onChat }: { session: AuthSession; product: Product; mine: boolean; favorite: boolean; onBack: () => void; onFavorite: () => void; onEdit: () => void; onChat: () => void }) { const avatarUri = imageUrl(product.seller.avatarUrl ?? undefined); const [photoViewerOpen, setPhotoViewerOpen] = useState(false); const productImageUri = imageUrl(product.imagePaths[0]); return <View style={s.flex}><ScrollView><TopBar title="상품 상세" onBack={onBack} right={!mine ? <ReportButton session={session} targetType="product" productId={product.id} reportedUserId={product.seller.id} /> : undefined} />{productImageUri ? <Pressable accessibilityRole="button" accessibilityLabel="상품 사진 크게 보기" onPress={() => setPhotoViewerOpen(true)}><Thumbnail product={product} large /></Pressable> : <Thumbnail product={product} large />}<View style={s.detail}><Text style={s.detailCategory}>{product.productType === 'laptop' ? '노트북용' : '데스크탑용'} · {product.category}</Text><Text style={s.detailTitle}>{product.title}</Text><Text style={s.meta}>{product.seller.nickname} · {relative(product.createdAt)}</Text><Text style={s.detailStatus}>{productStatusLabel(product.status)}</Text><Text style={s.detailPrice}>{price(product.askingPrice)}</Text><View style={s.divider} /><View style={s.seller}><View style={s.avatar}>{avatarUri ? <Image source={{ uri: avatarUri }} style={s.avatarImage} /> : <Text style={s.avatarText}>{product.seller.nickname.charAt(0).toUpperCase()}</Text>}</View><Text style={s.sellerName}>{product.seller.nickname}</Text></View><Text style={s.description}>{product.description}</Text></View></ScrollView><View style={s.actions}><Pressable onPress={onFavorite} style={s.actionHeart}><Text style={[s.heart, favorite && s.heartOn]}>{favorite ? '♥' : '♡'}</Text></Pressable><View style={s.actionInfo}><Text style={s.actionPrice}>{price(product.askingPrice)}</Text><Text style={s.actionMeta}>거래 장소 협의</Text></View><Pressable onPress={mine ? onEdit : onChat} style={s.actionButton}><Text style={s.actionButtonText}>{mine ? '수정하기' : '채팅하기'}</Text></Pressable></View><PhotoViewer uri={productImageUri} visible={photoViewerOpen} onClose={() => setPhotoViewerOpen(false)} /></View>; }
 
 function ProductForm({ session, product, onBack, onSave, onDelete }: { session: AuthSession; product?: Product; onBack: () => void; onSave: (input: ProductInput, id?: string) => Promise<void>; onDelete?: () => Promise<void> }) {
@@ -454,7 +509,7 @@ function AdminInquiryScreen({ adminToken, inquiry, onBack }: { adminToken: strin
 function dateTime(value: string) { return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)); }
 
 function Favorites({ products, onBack, onSelect, onUnfavorite }: { products: Product[]; onBack: () => void; onSelect: (p: Product) => void; onUnfavorite: (id: string) => void }) { return <View style={s.flex}><TopBar title="찜한 상품" onBack={onBack} /><ScrollView contentContainerStyle={s.list}>{products.length ? products.map((p) => <ProductRow key={p.id} product={p} favorite onSelect={() => onSelect(p)} onFavorite={() => onUnfavorite(p.id)} />) : <Empty title="찜한 상품이 없어요" body="상품의 하트를 눌러 관심 상품을 모아 보세요." />}</ScrollView></View>; }
-function Notifications({ notifications, onBack }: { notifications: ChatNotification[]; onBack: () => void }) { return <View style={s.flex}><TopBar title="알림 목록" onBack={onBack} /><ScrollView contentContainerStyle={s.notificationList}>{notifications.length ? notifications.map((notification) => <View key={notification.id} style={s.notificationCard}><View style={s.notificationCardTop}><Text style={s.notificationSender}>{notification.senderName}</Text><Text style={s.notificationDate}>{relative(notification.createdAt)}</Text></View><Text numberOfLines={2} style={s.notificationMessage}>{notification.message}</Text></View>) : <Empty title="새 알림이 없어요" body="새 채팅 메시지가 도착하면 이곳에서 확인할 수 있어요." />}</ScrollView></View>; }
+function Notifications({ notifications, onBack, onOpenNotification }: { notifications: ChatNotification[]; onBack: () => void; onOpenNotification: (notification: ChatNotification) => void }) { const copy = (notification: ChatNotification) => notification.kind === 'chat' ? { label: '채팅 알림', headline: `${notification.senderName ?? '알 수 없는 사용자'}님`, body: notification.message ?? '새 메시지가 도착했어요' } : notification.kind === 'favorite-price-drop' ? { label: '찜 목록 가격 변동', headline: '찜한 상품의 가격이 내려갔어요', body: notification.productTitle ?? '판매글을 확인해 보세요.' } : { label: '관심 상품 알림', headline: '관심 상품이 새롭게 게시되었어요', body: notification.productTitle ?? '새 판매글을 확인해 보세요.' }; return <View style={s.flex}><TopBar title="알림 목록" onBack={onBack} /><ScrollView contentContainerStyle={s.notificationList}>{notifications.length ? notifications.map((notification) => { const text = copy(notification); return <Pressable key={notification.id} accessibilityRole="button" accessibilityLabel={`${text.label}: ${text.headline}`} onPress={() => onOpenNotification(notification)} style={[s.notificationCard, !notification.read && s.notificationCardUnread]}><View style={s.notificationCardTop}><Text style={s.notificationType}>{text.label}</Text><Text style={s.notificationDate}>{relative(notification.createdAt)}</Text></View><Text numberOfLines={1} style={s.notificationSender}>{text.headline}</Text><Text numberOfLines={1} ellipsizeMode="tail" style={s.notificationMessage}>{text.body}</Text></Pressable>; }) : <Empty title="새 알림이 없어요" body="채팅, 찜한 상품 가격 변동, 관심 상품 등록 알림이 이곳에 표시됩니다." />}</ScrollView></View>; }
 function MyProducts({ products, onBack, onSelect }: { products: Product[]; onBack: () => void; onSelect: (p: Product) => void }) { return <View style={s.flex}><TopBar title="내 상품 관리" onBack={onBack} /><ScrollView contentContainerStyle={s.list}>{products.length ? products.map((product) => <ProductRow key={product.id} product={product} favorite={false} onSelect={() => onSelect(product)} onFavorite={() => undefined} />) : <Empty title="등록한 판매글이 없어요" body="상품 탭에서 첫 판매글을 등록해 보세요." />}</ScrollView></View>; }
 
 function AccountScreen({ session, onBack, onAccountUpdated, onSignOut, onAccountDeleted }: { session: AuthSession; onBack: () => void; onAccountUpdated: (account: Account) => void; onSignOut: () => void; onAccountDeleted: () => Promise<void> }) {
@@ -525,7 +580,7 @@ function time(value: string) { return new Intl.DateTimeFormat('ko-KR', { hour: '
 
 const s = StyleSheet.create({
   composerFixed:{alignItems:'center'},messageInputFixed:{height:48,maxHeight:48},sendFixed:{height:48,justifyContent:'center'},
-  headerBellButton:{width:40,minWidth:40,height:40,paddingHorizontal:0,borderWidth:0,borderRadius:12,backgroundColor:'transparent'},bellIcon:{width:21,height:22,alignItems:'center'},bellDome:{position:'absolute',top:2,width:14,height:15,borderWidth:2,borderBottomWidth:0,borderColor:green,borderTopLeftRadius:8,borderTopRightRadius:8},bellRim:{position:'absolute',top:16,width:19,height:3,borderRadius:3,backgroundColor:green},bellClapper:{position:'absolute',top:20,width:5,height:3,borderRadius:3,backgroundColor:green},pageTitleRow:{height:61,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20},pageTitleInRow:{marginTop:0,paddingHorizontal:0},priceStatusRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:5},productListStatus:{alignSelf:'auto',paddingHorizontal:10,paddingVertical:5,borderRadius:10,fontSize:13},detailStatus:{marginTop:17,color:'#16201F',fontSize:25,fontWeight:'800'},navNotificationBadgeLarge:{position:'absolute',top:-5,right:-12,minWidth:23,height:23,alignItems:'center',justifyContent:'center',paddingHorizontal:5,borderWidth:2,borderColor:'#FFFFFF',borderRadius:12,backgroundColor:'#CF4A58'},navNotificationBadgeTextLarge:{color:'#FFFFFF',fontSize:12,fontWeight:'900'},photoViewerOverlay:{flex:1,alignItems:'center',justifyContent:'center',padding:20,backgroundColor:'rgba(5,14,12,.78)'},photoViewerDismiss:{position:'absolute',top:0,right:0,bottom:0,left:0},photoViewerCard:{width:'100%',maxWidth:720,maxHeight:'88%',alignItems:'center',padding:16,borderRadius:20,backgroundColor:'#FFFFFF'},photoViewerImageWrap:{width:'100%',height:430,alignItems:'center',justifyContent:'center',overflow:'hidden'},photoViewerImage:{width:'100%',height:'100%'},photoViewerImageZoomed:{width:'165%',height:'165%'},photoViewerHint:{marginTop:12,color:'#68736F',fontSize:12,fontWeight:'700'},photoViewerClose:{marginTop:14,paddingHorizontal:22,paddingVertical:10,borderRadius:11,backgroundColor:green},photoViewerCloseText:{color:'#FFFFFF',fontSize:14,fontWeight:'800'},adminSidebarSignOutCentered:{alignItems:'center'},settingsStandard:{paddingHorizontal:20,paddingTop:0,paddingBottom:24},
+  headerBellButton:{width:40,minWidth:40,height:40,paddingHorizontal:0,borderWidth:0,borderRadius:12,backgroundColor:'transparent'},bellIcon:{width:21,height:22,alignItems:'center'},bellDome:{position:'absolute',top:2,width:14,height:15,borderWidth:2,borderBottomWidth:0,borderColor:green,borderTopLeftRadius:8,borderTopRightRadius:8},bellRim:{position:'absolute',top:16,width:19,height:3,borderRadius:3,backgroundColor:green},bellClapper:{position:'absolute',top:20,width:5,height:3,borderRadius:3,backgroundColor:green},pageTitleRow:{height:61,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20},pageTitleInRow:{marginTop:0,paddingHorizontal:0},priceStatusRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:5},productListStatus:{alignSelf:'auto',paddingHorizontal:10,paddingVertical:5,borderRadius:10,fontSize:13},detailStatus:{marginTop:17,color:'#16201F',fontSize:25,fontWeight:'800'},navNotificationBadgeLarge:{position:'absolute',top:-5,right:-12,minWidth:23,height:23,alignItems:'center',justifyContent:'center',paddingHorizontal:5,borderWidth:2,borderColor:'#FFFFFF',borderRadius:12,backgroundColor:'#CF4A58'},navNotificationBadgeTextLarge:{color:'#FFFFFF',fontSize:12,fontWeight:'900'},notificationType:{color:green,fontSize:12,fontWeight:'800'},notificationCardUnread:{borderColor:'#9EC8BE',backgroundColor:'#F8FCFA'},photoViewerOverlay:{flex:1,alignItems:'center',justifyContent:'center',padding:20,backgroundColor:'rgba(5,14,12,.78)'},photoViewerDismiss:{position:'absolute',top:0,right:0,bottom:0,left:0},photoViewerCard:{width:'100%',maxWidth:720,maxHeight:'88%',alignItems:'center',padding:16,borderRadius:20,backgroundColor:'#FFFFFF'},photoViewerImageWrap:{width:'100%',height:430,alignItems:'center',justifyContent:'center',overflow:'hidden'},photoViewerImage:{width:'100%',height:'100%'},photoViewerImageZoomed:{width:'165%',height:'165%'},photoViewerHint:{marginTop:12,color:'#68736F',fontSize:12,fontWeight:'700'},photoViewerClose:{marginTop:14,paddingHorizontal:22,paddingVertical:10,borderRadius:11,backgroundColor:green},photoViewerCloseText:{color:'#FFFFFF',fontSize:14,fontWeight:'800'},adminSidebarSignOutCentered:{alignItems:'center'},settingsStandard:{paddingHorizontal:20,paddingTop:0,paddingBottom:24},
   navLarge:{height:82,paddingTop:7,paddingBottom:5},navIconBox:{position:'relative',height:38,alignItems:'center',justifyContent:'center'},navIconImage:{width:40,height:36},navIconDimmed:{opacity:.5},navLabelLarge:{marginTop:2},navNotificationBadge:{position:'absolute',top:-2,right:-9,minWidth:18,height:18,alignItems:'center',justifyContent:'center',paddingHorizontal:4,borderWidth:2,borderColor:'#FFFFFF',borderRadius:10,backgroundColor:'#CF4A58'},navNotificationBadgeText:{color:'#FFFFFF',fontSize:10,fontWeight:'900'},
   deleteButton:{minHeight:53,alignItems:'center',justifyContent:'center',marginTop:14,borderWidth:1,borderColor:'#B9382F',borderRadius:14},deleteButtonText:{color:'#B9382F',fontSize:16,fontWeight:'800'},
   reportTopButton:{width:40,height:40,alignItems:'center',justifyContent:'center'},reportTopIcon:{width:27,height:27,resizeMode:'contain'},

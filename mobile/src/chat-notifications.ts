@@ -7,5 +7,9 @@ export async function notifyIncomingChat(senderName: string, message: string) {
 }
 
 export async function notifyCustomProduct(title: string, category: string) {
-  if (await prepareChatNotifications()) new Notification('원하는 RAM 상품이 등록됐어요', { body: `${category}\n${title}` });
+  if (await prepareChatNotifications()) new Notification('관심 상품이 새롭게 게시되었어요', { body: `${category}\n${title}` });
+}
+
+export async function notifyFavoritePriceDrop(title: string) {
+  if (await prepareChatNotifications()) new Notification('찜한 상품의 가격이 내려갔어요', { body: title });
 }
