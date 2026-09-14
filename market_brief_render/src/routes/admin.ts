@@ -12,6 +12,15 @@ export const adminRouter = Router();
 
 adminRouter.use(requireAdmin);
 
+adminRouter.get('/users', async (_request, response, next) => {
+  try {
+    await releaseExpiredSuspensions();
+    const { data, error } = await adminSupabase.from('users').select('id,login_id,nickname,status,suspended_until').order('created_at', { ascending: false });
+    if (error) throw error;
+    return response.json({ data: data ?? [] });
+  } catch (error) { return next(error); }
+});
+
 adminRouter.get('/suspensions', async (_request, response, next) => {
   try {
     await releaseExpiredSuspensions();

@@ -61,6 +61,7 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | POST | `/api/v1/reports` | 필요 | 판매글 또는 참여 중인 1:1 채팅 신고 |
 | GET/DELETE/POST | `/api/v1/support/thread`, `/api/v1/support/messages` | 필요 | 내 관리자 문의 대화 조회·종료 후 삭제·전송 |
 | GET | `/api/v1/admin/reports?targetType=product\|chat` | 관리자 | 분리된 신고 목록 조회 |
+| GET | `/api/v1/admin/users` | 관리자 | 전체 사용자 및 활동 상태 조회 |
 | DELETE | `/api/v1/admin/reports/:reportId` | 관리자 | 신고 요청 무시·목록에서 제거 |
 | GET | `/api/v1/admin/suspensions` | 관리자 | 활동 정지 계정·해제 예정 시각 조회 |
 | PATCH/DELETE | `/api/v1/admin/users/:userId/suspension` | 관리자 | 기간별 활동 정지 설정·관리자 임의 해제 |
@@ -80,7 +81,7 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 회원가입 아이디는 영문 소문자, 숫자, `_`, `-`를 사용한 4~20자이며, 이메일을 입력하거나 인증할 필요가 없습니다. API는 사용자에게 보이지 않는 내부 식별자만 만들어 Supabase Auth에 전달합니다. 비밀번호는 API나 `users` 테이블에 저장되지 않고, Supabase Auth가 안전한 단방향 해시로 `auth.users`에 저장합니다.
 
-새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609140001_product_favorites.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
+새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609140002_show_listing_statuses.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
 
 ## 앱 내부 관리자 설정
 

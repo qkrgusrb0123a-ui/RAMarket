@@ -10,12 +10,11 @@ const productInput = z.object({
   productType: z.enum(['desktop', 'laptop']),
   condition: z.enum(['new', 'like_new', 'good', 'fair']),
   askingPrice: z.coerce.number().int().nonnegative(),
+  status: z.enum(['active', 'reserved', 'sold']).default('active'),
   imagePaths: z.array(z.string().trim().min(1).max(500)).max(8).default([])
 });
 
-const productUpdateInput = productInput.extend({
-  status: z.enum(['active', 'reserved', 'sold', 'hidden']).optional()
-});
+const productUpdateInput = productInput.extend({ status: z.enum(['active', 'reserved', 'sold', 'hidden']).optional() });
 
 export const productsRouter = Router();
 
@@ -37,7 +36,6 @@ productsRouter.get('/', async (request, response, next) => {
     let statement = supabaseForRequest(request)
       .from('products')
       .select('id,title,description,category,product_type,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)', { count: 'exact' })
-      .eq('status', 'active')
       .order('created_at', { ascending: false })
       .range((page - 1) * limit, page * limit - 1);
     if (category) statement = statement.eq('category', category);
@@ -97,7 +95,8 @@ productsRouter.post('/', requireAuth, async (request, response, next) => {
       category: input.category,
       product_type: input.productType,
       condition: input.condition,
-      asking_price: input.askingPrice
+      asking_price: input.askingPrice,
+      status: input.status
     }).select().single();
     if (error) throw error;
     if (input.imagePaths.length) {

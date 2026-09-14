@@ -41,6 +41,7 @@ export type ProductInput = {
   productType: 'desktop' | 'laptop';
   condition: 'new' | 'like_new' | 'good' | 'fair';
   askingPrice: number;
+  status: 'active' | 'reserved' | 'sold';
   imagePaths: string[];
 };
 
@@ -255,6 +256,10 @@ export const supportApi = {
 };
 
 export const adminApi = {
+  async users(adminToken: string) {
+    const result = await adminRequest<{ data: Exclude<ApiAdminUser, null | unknown[]>[] }>('/users', adminToken);
+    return result.data.map((user) => oneAdminUser(user)).filter((user): user is AdminUser => user !== null);
+  },
   async reports(adminToken: string, targetType: ReportTargetType) {
     type ApiReport = { id: string; target_type: ReportTargetType; product_id: string; product_title: string; created_at: string; reporter: ApiAdminUser; reportedUser: ApiAdminUser; product: { id: string; title: string; description: string; asking_price: number; status: Product['status'] } | { id: string; title: string; description: string; asking_price: number; status: Product['status'] }[] | null };
     const result = await adminRequest<{ data: ApiReport[] }>(`/reports?targetType=${targetType}`, adminToken);
