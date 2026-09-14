@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { adminSupabase } from '../lib/supabase.js';
 import { requireAdmin } from '../middleware/admin-auth.js';
 import { permanentlyDeleteAccount } from '../services/account-removal.js';
@@ -15,7 +16,9 @@ adminRouter.use(requireAdmin);
 adminRouter.get('/users', async (_request, response, next) => {
   try {
     await releaseExpiredSuspensions();
-    const { data, error } = await adminSupabase.from('users').select('id,login_id,nickname,status,suspended_until').order('created_at', { ascending: false });
+    const query = adminSupabase.from('users').select('id,login_id,nickname,status,suspended_until');
+    if (env.ADMIN_LOGIN_ID) query.neq('login_id', env.ADMIN_LOGIN_ID);
+    const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
     return response.json({ data: data ?? [] });
   } catch (error) { return next(error); }
