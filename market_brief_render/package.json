@@ -11,6 +11,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "build:web": "node scripts/build-web.mjs",
+    "build:deploy": "pnpm run build && pnpm run build:web",
     "start": "node dist/index.js",
     "job:weekly-prices": "tsx src/jobs/weekly-price-job.ts",
     "admin:password": "tsx src/scripts/generate-admin-password.ts",

@@ -3,6 +3,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './config/env.js';
@@ -19,10 +20,21 @@ import { adminRouter } from './routes/admin.js';
 import { supportRouter } from './routes/support.js';
 
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
+const webDirectory = path.resolve(sourceDirectory, '../public/web');
+const webEntryFile = path.join(webDirectory, 'index.html');
 
 export const app = express();
 app.set('trust proxy', 1);
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'connect-src': ["'self'", 'https:'],
+      'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+      'style-src': ["'self'", "'unsafe-inline'"]
+    }
+  }
+}));
 app.use(cors({ origin: env.allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'DELETE'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Cron-Secret'] }));
 app.use(express.json({
   limit: '1mb',
@@ -44,5 +56,15 @@ app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/internal', internalRouter);
 app.use('/admin', express.static(path.resolve(sourceDirectory, '../public/admin'), { index: 'index.html' }));
+app.use(express.static(webDirectory, { index: 'index.html' }));
+app.use((request, response, next) => {
+  const isApiRoute = request.path === '/health'
+    || request.path.startsWith('/api/')
+    || request.path.startsWith('/internal/')
+    || request.path === '/admin'
+    || request.path.startsWith('/admin/');
+  if (!existsSync(webEntryFile) || (request.method !== 'GET' && request.method !== 'HEAD') || isApiRoute || path.extname(request.path)) return next();
+  response.sendFile(webEntryFile, (error) => { if (error) next(error); });
+});
 app.use(notFound);
 app.use(errorHandler);

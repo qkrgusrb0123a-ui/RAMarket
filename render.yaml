@@ -5,7 +5,7 @@ services:
     name: ramarket-api
     rootDir: market_brief_render
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run build
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run build:deploy
     startCommand: pnpm start
     healthCheckPath: /health
     autoDeployTrigger: commit
@@ -28,26 +28,14 @@ services:
         sync: false
       - key: PRICE_FEED_URL
         sync: false
-  - type: web
-    runtime: static
-    name: ramarket-web
-    rootDir: mobile
-    buildCommand: npm ci && npm run web:export
-    staticPublishPath: dist
-    autoDeployTrigger: commit
-    envVars:
-      # Expo embeds these public values into the static web bundle at build time.
-      # Set their real values in Render; never add service-role credentials here.
+      # Expo embeds these public values into the web bundle at build time.
+      # Use this API service's public HTTPS URL for EXPO_PUBLIC_API_BASE_URL.
       - key: EXPO_PUBLIC_API_BASE_URL
         sync: false
       - key: EXPO_PUBLIC_SUPABASE_URL
         sync: false
       - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
         sync: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
   - type: cron
     name: ramarket-weekly-price-collector
     runtime: node
