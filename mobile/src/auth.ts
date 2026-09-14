@@ -1,6 +1,7 @@
 export type AuthSession = {
   user: { id: string; loginId: string };
   session: { accessToken: string; refreshToken: string; expiresIn: number };
+  adminToken?: string;
 };
 export type Account = { loginId: string; nickname: string; avatarUrl: string | null };
 

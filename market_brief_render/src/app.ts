@@ -55,7 +55,6 @@ app.use('/api/v1/support', supportRouter);
 app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/internal', internalRouter);
-app.use('/admin', express.static(path.resolve(sourceDirectory, '../public/admin'), { index: 'index.html' }));
 app.use(express.static(webDirectory, { index: 'index.html' }));
 app.use((request, response, next) => {
   const isApiRoute = request.path === '/health'

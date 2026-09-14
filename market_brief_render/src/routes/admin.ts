@@ -1,25 +1,14 @@
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { adminSupabase } from '../lib/supabase.js';
 import { requireAdmin } from '../middleware/admin-auth.js';
-import { createAdminToken, passwordMatches } from '../services/admin-auth.js';
 import { permanentlyDeleteAccount } from '../services/account-removal.js';
 import { cancelSuspension, releaseExpiredSuspensions, suspendUser, suspensionDurations } from '../services/suspensions.js';
 
-const passwordInput = z.object({ password: z.string().min(1).max(256) });
 const reportFilter = z.object({ targetType: z.enum(['product', 'chat']).default('product') });
 const suspensionInput = z.object({ duration: z.enum(suspensionDurations) });
 
 export const adminRouter = Router();
-
-adminRouter.post('/session', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }), (request, response, next) => {
-  try {
-    const { password } = passwordInput.parse(request.body);
-    if (!passwordMatches(password)) return response.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
-    return response.json({ data: { token: createAdminToken() } });
-  } catch (error) { return next(error); }
-});
 
 adminRouter.use(requireAdmin);
 

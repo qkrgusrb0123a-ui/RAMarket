@@ -1,6 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '../config/env.js';
-import { verifyPasswordHash } from './password-hash.js';
 
 const tokenLifetimeSeconds = 4 * 60 * 60;
 
@@ -10,10 +9,6 @@ function encode(value: string | Buffer) {
 
 function sign(value: string) {
   return createHmac('sha256', env.ADMIN_SESSION_SECRET).update(value).digest('base64url');
-}
-
-export function passwordMatches(password: string) {
-  return verifyPasswordHash(password, env.ADMIN_PASSWORD_HASH);
 }
 
 export function createAdminToken() {

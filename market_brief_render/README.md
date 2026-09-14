@@ -59,7 +59,6 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET | `/api/v1/messages/threads` | 필요 | 로그인 사용자의 1:1 대화 목록 |
 | POST | `/api/v1/reports` | 필요 | 판매글 또는 참여 중인 1:1 채팅 신고 |
 | GET/DELETE/POST | `/api/v1/support/thread`, `/api/v1/support/messages` | 필요 | 내 관리자 문의 대화 조회·종료 후 삭제·전송 |
-| POST | `/api/v1/admin/session` | 관리자 비밀번호 | 관리자 웹 세션 발급 |
 | GET | `/api/v1/admin/reports?targetType=product\|chat` | 관리자 | 분리된 신고 목록 조회 |
 | DELETE | `/api/v1/admin/reports/:reportId` | 관리자 | 신고 요청 무시·목록에서 제거 |
 | GET | `/api/v1/admin/suspensions` | 관리자 | 활동 정지 계정·해제 예정 시각 조회 |
@@ -82,17 +81,11 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609100002_support_inquiries.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
 
-## 관리자 웹 페이지와 비밀번호 설정
+## 앱 내부 관리자 설정
 
-관리자 페이지는 회원가입/관리자 계정 테이블 없이 **비밀번호 하나**로만 열립니다. 실제 비밀번호는 저장하지 않고 `scrypt` 단방향 해시만 서버 환경변수에 둡니다.
+별도 `/admin` 웹 페이지는 제공하지 않습니다. Render 환경변수 `ADMIN_LOGIN_ID`에 관리자용으로 이미 가입한 아이디를 설정하고, `ADMIN_SESSION_SECRET`에는 32자 이상의 무작위 값을 설정하세요. 해당 계정이 일반 로그인에 성공하면 곧바로 앱 내부 관리자 화면이 열립니다.
 
-1. `market_brief_render`에서 `pnpm run admin:password`를 실행하고, 12자 이상의 새 관리자 비밀번호를 입력합니다.
-2. 출력된 `ADMIN_PASSWORD_HASH=...` 전체를 서버의 `.env`와 Render의 `ADMIN_PASSWORD_HASH` 환경변수에 붙여넣습니다.
-3. `ADMIN_SESSION_SECRET`에는 32자 이상의 무작위 값을 넣습니다. 예: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
-4. Supabase migration `202609090004_reports_and_moderation.sql`을 적용하고 API를 배포합니다.
-5. 브라우저에서 `https://<Render-API-주소>/admin`을 열고, 1단계에서 정한 평문 비밀번호를 입력합니다.
-
-관리자 세션은 브라우저를 닫으면 삭제되는 `sessionStorage`에만 저장되고 4시간 후 만료됩니다. 비밀번호, service role key, `ADMIN_SESSION_SECRET`은 모바일 앱이나 Git에 절대 저장하지 마세요. 활동 정지는 1일·3일·7일·30일·1년·무기한 중에서 설정할 수 있으며, 임시 정지는 만료 시 서버가 자동 해제합니다. 관리자는 활동 정지 관리 탭에서 언제든 해제할 수 있습니다. 신고를 무시하거나 신고 대상 계정을 활동 정지·삭제하면 해당 신고는 목록에서 제거됩니다. 관리자 문의 탭에서는 앱의 로그인·설정 화면에서 접수된 문의를 채팅 형식으로 답변하고 처리 완료할 수 있습니다.
+관리자 토큰은 로그인 응답에만 포함되며 4시간 후 만료됩니다. `ADMIN_LOGIN_ID`, service role key, `ADMIN_SESSION_SECRET`은 Git이나 모바일 앱 환경변수에 넣지 마세요. 활동 정지는 1일·3일·7일·30일·1년·무기한 중에서 설정할 수 있고, 신고 무시·게시글 삭제·계정 삭제·문의 답변/종료를 웹과 모바일에서 같은 UI로 처리할 수 있습니다.
 
 ## 이미지 업로드 규칙
 

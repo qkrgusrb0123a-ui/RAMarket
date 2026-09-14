@@ -63,6 +63,10 @@ export type ChatThread = {
 
 export type ReportTargetType = 'product' | 'chat';
 export type SupportMessage = { id: string; senderRole: 'user' | 'admin'; content: string; createdAt: string };
+export type AdminUser = { id: string; loginId: string; nickname: string; status: 'active' | 'suspended'; suspendedUntil: string | null };
+export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
+export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
+export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
 
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
@@ -105,6 +109,28 @@ async function apiRequest<T>(path: string, session?: AuthSession, init?: Request
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(errorMessage(response, data));
   return data as T;
+}
+
+async function adminRequest<T>(path: string, adminToken: string, init?: RequestInit): Promise<T> {
+  const baseUrl = requireApiBaseUrl();
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/admin${path}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${adminToken}`, ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...(init?.headers ?? {}) }
+    });
+  } catch {
+    throw new Error('클라우드 서버에 연결할 수 없습니다. API 주소와 네트워크를 확인해 주세요.');
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(errorMessage(response, data));
+  return data as T;
+}
+
+type ApiAdminUser = { id: string; login_id: string; nickname: string; status: 'active' | 'suspended'; suspended_until: string | null } | { id: string; login_id: string; nickname: string; status: 'active' | 'suspended'; suspended_until: string | null }[] | null;
+function oneAdminUser(user: ApiAdminUser): AdminUser | null {
+  const value = Array.isArray(user) ? user[0] : user;
+  return value ? { id: value.id, loginId: value.login_id, nickname: value.nickname, status: value.status, suspendedUntil: value.suspended_until } : null;
 }
 
 function oneSeller(seller: ApiSeller) {
@@ -213,6 +239,43 @@ export const supportApi = {
     const result = await apiRequest<{ data: ApiSupportMessage }>('/api/v1/support/messages', session, { method: 'POST', body: JSON.stringify({ content }) });
     return supportMessageFromApi(result.data);
   }
+};
+
+export const adminApi = {
+  async reports(adminToken: string, targetType: ReportTargetType) {
+    type ApiReport = { id: string; target_type: ReportTargetType; product_id: string; product_title: string; created_at: string; reporter: ApiAdminUser; reportedUser: ApiAdminUser; product: { id: string; title: string; description: string; asking_price: number; status: Product['status'] } | { id: string; title: string; description: string; asking_price: number; status: Product['status'] }[] | null };
+    const result = await adminRequest<{ data: ApiReport[] }>(`/reports?targetType=${targetType}`, adminToken);
+    return result.data.map((report) => {
+      const product = Array.isArray(report.product) ? report.product[0] : report.product;
+      return { id: report.id, targetType: report.target_type, productId: report.product_id, productTitle: report.product_title, createdAt: report.created_at, reporter: oneAdminUser(report.reporter), reportedUser: oneAdminUser(report.reportedUser), product: product ? { id: product.id, title: product.title, description: product.description, askingPrice: product.asking_price, status: product.status } : null } satisfies AdminReport;
+    });
+  },
+  async suspensions(adminToken: string) {
+    const result = await adminRequest<{ data: Exclude<ApiAdminUser, null | unknown[]>[] }>('/suspensions', adminToken);
+    return result.data.map((user) => oneAdminUser(user)).filter((user): user is AdminUser => user !== null);
+  },
+  async inquiries(adminToken: string) {
+    type ApiInquiry = { id: string; contact_label: string; status: 'open' | 'closed'; created_at: string; updated_at: string };
+    const result = await adminRequest<{ data: ApiInquiry[] }>('/inquiries', adminToken);
+    return result.data.map((inquiry) => ({ id: inquiry.id, contactLabel: inquiry.contact_label, status: inquiry.status, createdAt: inquiry.created_at, updatedAt: inquiry.updated_at }));
+  },
+  async inquiry(adminToken: string, inquiryId: string) {
+    type ApiInquiryMessage = { id: string; sender_role: 'user' | 'admin'; content: string; created_at: string };
+    const result = await adminRequest<{ data: { inquiry: { id: string; contact_label: string; status: 'open' | 'closed' }; messages: ApiInquiryMessage[] } }>(`/inquiries/${inquiryId}/messages`, adminToken);
+    return { inquiry: { id: result.data.inquiry.id, contactLabel: result.data.inquiry.contact_label, status: result.data.inquiry.status }, messages: result.data.messages.map(supportMessageFromApi) };
+  },
+  async sendInquiryMessage(adminToken: string, inquiryId: string, content: string) { await adminRequest(`/inquiries/${inquiryId}/messages`, adminToken, { method: 'POST', body: JSON.stringify({ content }) }); },
+  async closeInquiry(adminToken: string, inquiryId: string) { await adminRequest(`/inquiries/${inquiryId}/close`, adminToken, { method: 'PATCH' }); },
+  async conversation(adminToken: string, reportId: string) {
+    type ApiConversationMessage = { id: string; content: string; created_at: string; sender: ApiAdminUser; recipient: ApiAdminUser };
+    const result = await adminRequest<{ data: { productTitle: string; messages: ApiConversationMessage[] } }>(`/reports/${reportId}/conversation`, adminToken);
+    return { productTitle: result.data.productTitle, messages: result.data.messages.map((message) => ({ id: message.id, content: message.content, createdAt: message.created_at, sender: oneAdminUser(message.sender), recipient: oneAdminUser(message.recipient) })) };
+  },
+  async ignoreReport(adminToken: string, reportId: string) { await adminRequest(`/reports/${reportId}`, adminToken, { method: 'DELETE' }); },
+  async deleteProduct(adminToken: string, productId: string) { await adminRequest(`/products/${productId}`, adminToken, { method: 'DELETE' }); },
+  async suspendUser(adminToken: string, userId: string, duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent') { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'PATCH', body: JSON.stringify({ duration }) }); },
+  async cancelSuspension(adminToken: string, userId: string) { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'DELETE' }); },
+  async deleteUser(adminToken: string, userId: string) { await adminRequest(`/users/${userId}`, adminToken, { method: 'DELETE' }); }
 };
 
 type ApiMessage = { id: string; product_id: string; sender_id: string; recipient_id: string; content: string; created_at: string };

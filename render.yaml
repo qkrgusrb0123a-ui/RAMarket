@@ -20,7 +20,7 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
-      - key: ADMIN_PASSWORD_HASH
+      - key: ADMIN_LOGIN_ID
         sync: false
       - key: ADMIN_SESSION_SECRET
         generateValue: true

@@ -4,6 +4,8 @@ import { adminSupabase, publicSupabase } from '../lib/supabase.js';
 import { requireAuth } from '../middleware/auth.js';
 import { permanentlyDeleteAccount } from '../services/account-removal.js';
 import { isUserSuspended } from '../services/suspensions.js';
+import { createAdminToken } from '../services/admin-auth.js';
+import { env } from '../config/env.js';
 
 const loginIdSchema = z.string()
   .trim()
@@ -46,7 +48,8 @@ function authEmail(loginId: string) {
 function sessionResponse(userId: string, loginId: string, accessToken: string, refreshToken: string, expiresIn: number | undefined) {
   return {
     user: { id: userId, loginId },
-    session: { accessToken, refreshToken, expiresIn: expiresIn ?? 0 }
+    session: { accessToken, refreshToken, expiresIn: expiresIn ?? 0 },
+    ...(env.ADMIN_LOGIN_ID === loginId ? { adminToken: createAdminToken() } : {})
   };
 }
 
