@@ -35,7 +35,7 @@ app.use(helmet({
     }
   }
 }));
-app.use(cors({ origin: env.allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'DELETE'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Cron-Secret'] }));
+app.use(cors({ origin: env.allowedOrigins, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Cron-Secret'] }));
 app.use(express.json({
   limit: '1mb',
   // Avoid relying on a transitive content-type resolver and accept only JSON

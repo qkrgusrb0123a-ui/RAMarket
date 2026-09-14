@@ -40,7 +40,7 @@ supabase db push
 
 CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일을 파일명 순서대로 실행합니다. 기존 DB에는 새 migration만 한 번 실행합니다.
 
-최종 테이블은 `users`, `products`, `products_images`, `messages`, `reports`, `support_inquiries`, `support_messages`, `ram_price`입니다. `reports`와 관리자 문의 테이블은 앱 클라이언트에서 직접 읽을 수 없으며, 서버 API만 접근합니다.
+최종 테이블은 `users`, `products`, `products_images`, `product_favorites`, `messages`, `reports`, `support_inquiries`, `support_messages`, `ram_price`입니다. `reports`, `product_favorites`, 관리자 문의 테이블은 앱 클라이언트에서 직접 읽을 수 없으며, 서버 API만 접근합니다.
 
 ## 주요 API
 
@@ -51,6 +51,7 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | POST | `/api/v1/auth/sign-in` | - | 아이디·비밀번호 로그인 후 세션 발급 |
 | GET/PATCH/DELETE | `/api/v1/auth/account` | 필요 | 계정 조회·수정·탈퇴 |
 | GET/POST | `/api/v1/products` | POST만 필요 | 상품 목록·등록 |
+| GET/PUT | `/api/v1/products/favorites/mine`, `/api/v1/products/favorites/:productId` | 필요 | 내 찜 목록 조회·변경 |
 | GET | `/api/v1/products/:productId` | - | 상품 상세 |
 | PATCH | `/api/v1/products/:productId` | 필요 | 판매자 본인의 판매글 수정 |
 | DELETE | `/api/v1/products/:productId` | 필요 | 판매자 본인의 판매글 삭제 |
@@ -79,7 +80,7 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 회원가입 아이디는 영문 소문자, 숫자, `_`, `-`를 사용한 4~20자이며, 이메일을 입력하거나 인증할 필요가 없습니다. API는 사용자에게 보이지 않는 내부 식별자만 만들어 Supabase Auth에 전달합니다. 비밀번호는 API나 `users` 테이블에 저장되지 않고, Supabase Auth가 안전한 단방향 해시로 `auth.users`에 저장합니다.
 
-새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609100002_support_inquiries.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
+새 Supabase 프로젝트에는 `supabase/migrations`의 migration을 파일명 순서대로 모두 적용하세요. 이미 이전 스키마를 적용한 프로젝트라면 새 `202609140001_product_favorites.sql`까지 적용하면 됩니다. 이 정책은 판매글을 자동으로 지우지 않고, 판매자와 기존 대화 참가자가 숨김·판매 완료된 글도 대화 맥락 안에서 볼 수 있게 합니다.
 
 ## 앱 내부 관리자 설정
 

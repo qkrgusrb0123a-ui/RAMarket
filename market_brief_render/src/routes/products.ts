@@ -19,6 +19,15 @@ const productUpdateInput = productInput.extend({
 
 export const productsRouter = Router();
 
+async function favoriteCountByProduct() {
+  const { data, error } = await adminSupabase.from('product_favorites').select('product_id');
+  if (error) throw error;
+  return (data ?? []).reduce((counts, favorite) => {
+    counts.set(favorite.product_id, (counts.get(favorite.product_id) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+}
+
 productsRouter.get('/', async (request, response, next) => {
   try {
     const page = Math.max(1, Number(request.query.page) || 1);
@@ -33,9 +42,34 @@ productsRouter.get('/', async (request, response, next) => {
       .range((page - 1) * limit, page * limit - 1);
     if (category) statement = statement.eq('category', category);
     if (query) statement = statement.ilike('title', `%${query}%`);
-    const { data, count, error } = await statement;
+    const [{ data, count, error }, favoriteCounts] = await Promise.all([statement, favoriteCountByProduct()]);
     if (error) throw error;
-    return response.json({ data, page, limit, total: count ?? 0 });
+    return response.json({ data: (data ?? []).map((product) => ({ ...product, favorite_count: favoriteCounts.get(product.id) ?? 0 })), page, limit, total: count ?? 0 });
+  } catch (error) { return next(error); }
+});
+
+productsRouter.get('/favorites/mine', requireAuth, async (request, response, next) => {
+  try {
+    const { data, error } = await adminSupabase.from('product_favorites').select('product_id').eq('user_id', request.userId);
+    if (error) throw error;
+    return response.json({ data: (data ?? []).map((favorite) => favorite.product_id) });
+  } catch (error) { return next(error); }
+});
+
+productsRouter.put('/favorites/:productId', requireAuth, async (request, response, next) => {
+  try {
+    const { active } = z.object({ active: z.boolean() }).parse(request.body);
+    const { data: product, error: productError } = await adminSupabase.from('products').select('id').eq('id', request.params.productId).maybeSingle();
+    if (productError) throw productError;
+    if (!product) return response.status(404).json({ error: '찜할 판매글을 찾을 수 없습니다.' });
+    if (active) {
+      const { error } = await adminSupabase.from('product_favorites').upsert({ user_id: request.userId, product_id: product.id }, { onConflict: 'user_id,product_id', ignoreDuplicates: true });
+      if (error) throw error;
+    } else {
+      const { error } = await adminSupabase.from('product_favorites').delete().eq('user_id', request.userId).eq('product_id', product.id);
+      if (error) throw error;
+    }
+    return response.status(204).send();
   } catch (error) { return next(error); }
 });
 

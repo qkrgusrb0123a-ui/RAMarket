@@ -14,6 +14,7 @@ type ApiProduct = {
   asking_price: number;
   status: 'active' | 'reserved' | 'sold' | 'hidden';
   created_at: string;
+  favorite_count?: number;
   seller: ApiSeller;
   products_images: ApiProductImage[] | null;
 };
@@ -28,6 +29,7 @@ export type Product = {
   askingPrice: number;
   status: 'active' | 'reserved' | 'sold' | 'hidden';
   createdAt: string;
+  favoriteCount: number;
   seller: { id: string; nickname: string; avatarUrl: string | null };
   imagePaths: string[];
 };
@@ -149,6 +151,7 @@ function productFromApi(product: ApiProduct): Product {
     askingPrice: product.asking_price,
     status: product.status,
     createdAt: product.created_at,
+    favoriteCount: product.favorite_count ?? 0,
     seller: (() => {
       const seller = oneSeller(product.seller);
       return { id: seller.id, nickname: seller.nickname, avatarUrl: seller.avatar_url };
@@ -204,14 +207,24 @@ export const productsApi = {
   },
   async create(input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>('/api/v1/products', session, { method: 'POST', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, favorite_count: 0, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async update(productId: string, input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session, { method: 'PATCH', body: JSON.stringify(input) });
-    return productFromApi({ ...result.data, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
+    return productFromApi({ ...result.data, favorite_count: 0, product_type: input.productType, seller: { id: session.user.id, nickname: session.user.loginId, avatar_url: null }, products_images: input.imagePaths.map((path, sort_order) => ({ path, sort_order })) });
   },
   async remove(productId: string, session: AuthSession) {
     await apiRequest<unknown>(`/api/v1/products/${productId}`, session, { method: 'DELETE' });
+  }
+};
+
+export const favoritesApi = {
+  async list(session: AuthSession) {
+    const result = await apiRequest<{ data: string[] }>('/api/v1/products/favorites/mine', session);
+    return result.data;
+  },
+  async set(productId: string, active: boolean, session: AuthSession) {
+    await apiRequest<unknown>(`/api/v1/products/favorites/${productId}`, session, { method: 'PUT', body: JSON.stringify({ active }) });
   }
 };
 
