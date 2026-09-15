@@ -15,6 +15,7 @@
     "build:deploy": "pnpm run build && pnpm run build:web",
     "start": "node dist/index.js",
     "job:weekly-prices": "tsx src/jobs/weekly-price-job.ts",
+    "job:weekly-ram-market": "tsx src/jobs/weekly-ram-market-job.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },

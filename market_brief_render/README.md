@@ -8,7 +8,7 @@
 market_brief_render/
 ├── src/
 │   ├── config/             # 환경변수 검증
-│   ├── jobs/               # Render Cron 작업
+│   ├── jobs/               # Render Cron 작업 (일요일 KST 시세 수집)
 │   ├── lib/                # Supabase 클라이언트
 │   ├── middleware/         # 인증·오류 처리
 │   ├── routes/             # products, messages, prices, internal
@@ -71,6 +71,9 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET/POST | `/api/v1/admin/inquiries/:inquiryId/messages` | 관리자 | 문의 대화 조회·답변 |
 | PATCH | `/api/v1/admin/inquiries/:inquiryId/close` | 관리자 | 문의 처리 완료 |
 | GET | `/api/v1/ram-prices/history?ramName=<RAM명>` | - | 주간 RAM 가격 이력 |
+| GET | `/api/v1/ram-prices/market-specs` | - | 승인된 통합 시세의 RAM 규격 목록 |
+| GET | `/api/v1/ram-prices/market-chart?ramSpec=<규격>` | - | 네이버·다나와 원천을 가중 평균으로 합친 차트 데이터 |
+| GET | `/api/v1/admin/market-data` | 관리자 | 공급자별 수집 실행 이력 및 최근 원본 관측값 |
 | POST | `/internal/ram-prices` | cron secret | 주간 RAM 가격 적재 |
 
 `POST /api/v1/messages` 본문은 `{ "productId", "recipientId", "content" }`이고, 조회에는 선택적으로 `productId`, `otherUserId` 쿼리를 사용할 수 있습니다. RAM 가격 수집 데이터는 `{ "prices": [{ "ramName", "price", "source", "weekStart" }] }` 형식입니다. `weekStart`를 생략하면 해당 주의 월요일이 저장됩니다.
@@ -97,12 +100,16 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 
 1. GitHub에서 빈 저장소를 만들고 이 프로젝트를 `main` 브랜치로 push합니다.
 2. Supabase 프로젝트를 만들고 migration을 반영합니다. Authentication의 앱 URL/리디렉션 URL도 모바일·웹 클라이언트에 맞춰 설정합니다.
-3. Render에서 **New → Blueprint**로 GitHub 저장소를 연결합니다. `render.yaml`이 API와 매주 월요일 03:00 UTC 가격 수집 작업을 생성합니다. API 서비스는 Expo 웹 번들도 함께 빌드해 루트(`/`)에서 제공합니다.
-4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `CRON_SECRET`, `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`를 입력합니다. `EXPO_PUBLIC_API_BASE_URL`에는 이 API 서비스의 HTTPS 주소를 넣습니다. `PRICE_FEED_URL`은 `{ "prices": [{ "ramName", "price", "source", "weekStart" }] }` 형식의 합법적인 제휴 API/자체 수집 서비스 주소를 지정할 때만 설정합니다.
+3. Render에서 **New → Blueprint**로 GitHub 저장소를 연결합니다. `render.yaml`이 API와 매주 **일요일 00:00 KST** 가격 수집 작업을 생성합니다. API 서비스는 Expo 웹 번들도 함께 빌드해 루트(`/`)에서 제공합니다.
+4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `CRON_SECRET`, `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`를 입력합니다. `EXPO_PUBLIC_API_BASE_URL`에는 이 API 서비스의 HTTPS 주소를 넣습니다.
 5. 배포가 완료되면 Render API 주소에서 웹앱이 열리고, 모바일 앱도 같은 주소의 API를 사용합니다. GitHub의 main push마다 Render가 자동 배포하고 Actions가 타입 검사를 수행합니다.
 
 ### `Route not found.`가 표시될 때
 
 `PATCH /api/v1/auth/account`, `DELETE /api/v1/products/:productId`를 포함한 관리 API는 현재 서버 코드에 등록되어 있습니다. 이 문구가 보이면 데이터베이스 문제가 아니라, 앱이 이전 Render 배포본 또는 다른 API 주소를 사용 중인 것입니다. 최신 커밋을 GitHub `main`에 push하고 Render 배포가 완료됐는지 확인한 뒤, 모바일 앱의 `EXPO_PUBLIC_API_BASE_URL`이 해당 Render 서비스 주소인지 확인합니다.
 
-가격 수집은 대상 사이트의 이용약관과 공식 API 정책을 준수해야 하므로, 특정 쇼핑몰을 무단으로 스크래핑하는 코드는 포함하지 않았습니다. `PRICE_FEED_URL` 어댑터 또는 보호된 내부 적재 API로 검증된 수집 결과만 저장합니다.
+## 네이버·다나와 리서치 시세 수집
+
+웹페이지 크롤러는 포함하지 않았습니다. 네이버는 자동화된 수단으로의 접근·정보 수집을 원칙적으로 금지하며, 명시적 허용·적법한 API·허용된 robots 범위 외에는 법적 조치 대상이 될 수 있다고 안내합니다. 다나와 리서치도 데이터 사용 범위가 확인된 API 또는 제휴 피드만 연결해야 합니다. 따라서 이 구현은 쇼핑 페이지 URL, 브라우저 자동화, CAPTCHA/IP 우회 방식을 받지 않고, **서면/계약/API 승인을 받은 서버 간 JSON 피드**만 호출합니다.
+
+각 공급자에 대해 `*_PROVIDER_URL`, `*_DATA_LICENSE_APPROVED=true`, `*_DATA_LICENSE_REFERENCE`를 모두 설정해야 해당 원천이 실행됩니다. 수집 피드는 규격(DDR 세대·용량·클럭), 가격, 공급자 상품 식별자, 상품명을 보냅니다. 서버는 규격별 최대 1,000개의 고유 상품만 저장하고, 초과·중복 값은 거절 수로 수집 이력에 남깁니다. 두 공급자는 별도 `source`와 실행 이력으로 저장되고, 사용자 차트는 같은 날짜/규격의 최소·최대와 상품 수 가중 평균을 하나의 통합 시계열로 보여 줍니다. 관리자 웹 대시보드의 **시세 수집** 메뉴에서는 통합 차트, 공급자별 실행 결과 및 최근 원본 관측값을 확인할 수 있습니다.

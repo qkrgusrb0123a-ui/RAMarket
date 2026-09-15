@@ -40,9 +40,10 @@ services:
     name: ramarket-weekly-price-collector
     runtime: node
     rootDir: market_brief_render
-    schedule: "0 3 * * 1"
+    # Saturday 15:00 UTC is Sunday 00:00 in Asia/Seoul (KST, UTC+9).
+    schedule: "0 15 * * 6"
     buildCommand: corepack enable && pnpm install --frozen-lockfile
-    startCommand: pnpm run job:weekly-prices
+    startCommand: pnpm run job:weekly-ram-market
     envVars:
       - key: SUPABASE_URL
         sync: false
@@ -50,5 +51,19 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-#      - key: PRICE_FEED_URL
-#        sync: false
+      - key: NAVER_SHOPPING_PROVIDER_URL
+        sync: false
+      - key: NAVER_SHOPPING_PROVIDER_TOKEN
+        sync: false
+      - key: NAVER_SHOPPING_DATA_LICENSE_APPROVED
+        sync: false
+      - key: NAVER_SHOPPING_DATA_LICENSE_REFERENCE
+        sync: false
+      - key: DANAWA_RESEARCH_PROVIDER_URL
+        sync: false
+      - key: DANAWA_RESEARCH_PROVIDER_TOKEN
+        sync: false
+      - key: DANAWA_RESEARCH_DATA_LICENSE_APPROVED
+        sync: false
+      - key: DANAWA_RESEARCH_DATA_LICENSE_REFERENCE
+        sync: false

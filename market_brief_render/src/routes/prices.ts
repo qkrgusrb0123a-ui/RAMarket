@@ -4,6 +4,41 @@ import { supabaseForRequest } from '../lib/supabase.js';
 
 export const ramPriceRouter = Router();
 
+ramPriceRouter.get('/market-specs', async (_request, response, next) => {
+  try {
+    const { data, error } = await supabaseForRequest(_request).from('ram_market_daily_summaries').select('ram_spec').order('ram_spec');
+    if (error) throw error;
+    return response.json({ data: [...new Set((data ?? []).map((item) => item.ram_spec))] });
+  } catch (error) { return next(error); }
+});
+
+/**
+ * Combines Naver and Danawa licensed summaries into a single chart series.
+ * We use a weighted mean so a source with more validated products contributes
+ * proportionally; source rows stay separate in the database and admin API.
+ */
+ramPriceRouter.get('/market-chart', async (request, response, next) => {
+  try {
+    const { ramSpec } = z.object({ ramSpec: z.string().trim().min(1).max(100) }).parse(request.query);
+    const { data, error } = await supabaseForRequest(request).from('ram_market_daily_summaries')
+      .select('collected_on,ram_spec,source,product_count,min_price,max_price,average_price')
+      .eq('ram_spec', ramSpec).order('collected_on', { ascending: true });
+    if (error) throw error;
+    const grouped = new Map<string, { collectedOn: string; productCount: number; minPrice: number; maxPrice: number; weightedTotal: number; sources: string[] }>();
+    for (const item of data ?? []) {
+      const current = grouped.get(item.collected_on) ?? { collectedOn: item.collected_on, productCount: 0, minPrice: item.min_price, maxPrice: item.max_price, weightedTotal: 0, sources: [] };
+      current.productCount += item.product_count;
+      current.minPrice = Math.min(current.minPrice, item.min_price);
+      current.maxPrice = Math.max(current.maxPrice, item.max_price);
+      current.weightedTotal += item.average_price * item.product_count;
+      current.sources.push(item.source);
+      grouped.set(item.collected_on, current);
+    }
+    const series = [...grouped.values()].map((item) => ({ collectedOn: item.collectedOn, productCount: item.productCount, minPrice: item.minPrice, maxPrice: item.maxPrice, averagePrice: Math.round(item.weightedTotal / item.productCount), sources: item.sources.sort() }));
+    return response.json({ data: { ramSpec, series } });
+  } catch (error) { return next(error); }
+});
+
 ramPriceRouter.get('/history', async (request, response, next) => {
   try {
     const { ramName } = z.object({ ramName: z.string().trim().min(1).max(100).optional() }).parse(request.query);

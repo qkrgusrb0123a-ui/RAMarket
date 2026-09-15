@@ -24,6 +24,21 @@ adminRouter.get('/users', async (_request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+/** Licensed-source audit information and individual RAM observations. */
+adminRouter.get('/market-data', async (request, response, next) => {
+  try {
+    const { ramSpec, collectedOn } = z.object({ ramSpec: z.string().trim().min(1).max(100).optional(), collectedOn: z.string().date().optional() }).parse(request.query);
+    const runsQuery = adminSupabase.from('ram_market_collection_runs').select('id,scheduled_for,source,authorization_reference,status,target_per_spec,received_count,accepted_count,rejected_count,failure_reason,started_at,completed_at').order('scheduled_for', { ascending: false }).limit(30);
+    let observationsQuery = adminSupabase.from('ram_market_observations').select('collected_on,ram_spec,ram_generation,capacity_gb,clock_mhz,price,source,source_product_id,source_product_name,source_url').order('collected_on', { ascending: false }).limit(100);
+    if (ramSpec) observationsQuery = observationsQuery.eq('ram_spec', ramSpec);
+    if (collectedOn) observationsQuery = observationsQuery.eq('collected_on', collectedOn);
+    const [runs, observations] = await Promise.all([runsQuery, observationsQuery]);
+    if (runs.error) throw runs.error;
+    if (observations.error) throw observations.error;
+    return response.set('Cache-Control', 'no-store').json({ data: { runs: runs.data ?? [], observations: observations.data ?? [] } });
+  } catch (error) { return next(error); }
+});
+
 adminRouter.get('/suspensions', async (_request, response, next) => {
   try {
     await releaseExpiredSuspensions();
