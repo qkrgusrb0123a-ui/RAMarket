@@ -32,3 +32,35 @@ services:
         sync: false
       - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
         sync: false
+      - key: NAVER_SHOPPING_CLIENT_ID
+        sync: false
+      - key: NAVER_SHOPPING_CLIENT_SECRET
+        sync: false
+  # Render schedules in UTC. 15:00 UTC is 00:00 in Asia/Seoul every day.
+  - type: cron
+    name: ramarket-daily-ram-market
+    runtime: node
+    rootDir: market_brief_render
+    plan: 0.5c-512mb
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: node dist/jobs/daily-ram-market.js
+    schedule: "0 15 * * *"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ADMIN_LOGIN_ID
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        sync: false
+      - key: NAVER_SHOPPING_CLIENT_ID
+        sync: false
+      - key: NAVER_SHOPPING_CLIENT_SECRET
+        sync: false

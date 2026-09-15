@@ -14,7 +14,11 @@ const environmentSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000,http://localhost:8081'),
   ADMIN_LOGIN_ID: optionalLoginId,
-  ADMIN_SESSION_SECRET: z.string().min(32)
+  ADMIN_SESSION_SECRET: z.string().min(32),
+  // These credentials are used only by the scheduled server-side collector.
+  // They must never be exposed through EXPO_PUBLIC_* variables.
+  NAVER_SHOPPING_CLIENT_ID: z.string().min(1).optional(),
+  NAVER_SHOPPING_CLIENT_SECRET: z.string().min(1).optional()
 });
 
 const parsed = environmentSchema.safeParse(process.env);

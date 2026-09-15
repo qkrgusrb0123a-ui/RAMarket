@@ -1,6 +1,6 @@
 # RAMarket API
 
-중고 RAM 상품 등록·검색, 1:1 메시지, 현재 판매글의 가격 중앙값 차트를 위한 TypeScript/Express API입니다. 인증, 데이터베이스, 이미지 저장소는 Supabase가 맡고 API는 Render에서 실행합니다.
+중고 RAM 상품 등록·검색, 1:1 메시지, 네이버 쇼핑 검색 API 기반 일간 RAM 시세 차트를 위한 TypeScript/Express API입니다. 인증, 데이터베이스, 이미지 저장소는 Supabase가 맡고 API는 Render에서 실행합니다.
 
 ## 구조
 
@@ -39,7 +39,7 @@ supabase db push
 
 CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일을 파일명 순서대로 실행합니다. 기존 DB에는 새 migration만 한 번 실행합니다.
 
-최종 테이블은 `users`, `products`, `products_images`, `product_favorites`, `messages`, `reports`, `support_inquiries`, `support_messages`, `ram_price`입니다. `reports`, `product_favorites`, 관리자 문의 테이블은 앱 클라이언트에서 직접 읽을 수 없으며, 서버 API만 접근합니다.
+일간 시세는 `ram_market_daily_prices`에만 저장합니다. 이 테이블에는 날짜, DDR4/DDR5, 용량, 표본 수, 최저가, 최고가, 중앙값만 있으며 검색 상품명·판매처·링크·상품 ID는 보관하지 않습니다. 이전 `ram_price`의 더미/레거시 데이터는 최신 migration에서 삭제됩니다.
 
 ## 주요 API
 
@@ -69,8 +69,8 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET | `/api/v1/admin/inquiries` | 관리자 | 관리자 문의 목록 조회 |
 | GET/POST | `/api/v1/admin/inquiries/:inquiryId/messages` | 관리자 | 문의 대화 조회·답변 |
 | PATCH | `/api/v1/admin/inquiries/:inquiryId/close` | 관리자 | 문의 처리 완료 |
-| GET | `/api/v1/ram-prices/listing-categories` | - | 판매 중인 중고 RAM의 카테고리 목록 |
-| GET | `/api/v1/ram-prices/listing-chart?category=<카테고리>` | - | 카테고리별 오름차순 판매가·최소/최대/중앙값 |
+| GET | `/api/v1/ram-prices/options` | - | DDR4/DDR5 및 선택 가능한 용량 |
+| GET | `/api/v1/ram-prices/chart?generation=DDR5&capacityGb=16&days=7` | - | 기간별 일간 최저가·최고가·중앙값 |
 
 `POST /api/v1/messages` 본문은 `{ "productId", "recipientId", "content" }`이고, 조회에는 선택적으로 `productId`, `otherUserId` 쿼리를 사용할 수 있습니다. 메모리 차트는 `products` 테이블에서 `status = active`인 게시글의 `asking_price`를 직접 읽어 낮은 가격순으로 정렬한 뒤 중앙값을 계산합니다.
 
@@ -97,13 +97,13 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 1. GitHub에서 빈 저장소를 만들고 이 프로젝트를 `main` 브랜치로 push합니다.
 2. Supabase 프로젝트를 만들고 migration을 반영합니다. Authentication의 앱 URL/리디렉션 URL도 모바일·웹 클라이언트에 맞춰 설정합니다.
 3. Render에서 **New → Blueprint**로 GitHub 저장소를 연결합니다. `render.yaml`은 API 서비스를 생성하고 Expo 웹 번들도 함께 빌드해 루트(`/`)에서 제공합니다.
-4. Render 환경변수에 `.env.example`의 Supabase 키와 `ALLOWED_ORIGINS`, `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`를 입력합니다. `EXPO_PUBLIC_API_BASE_URL`에는 이 API 서비스의 HTTPS 주소를 넣습니다.
+4. Render 웹 서비스와 `ramarket-daily-ram-market` 크론 서비스에 `.env.example`의 Supabase 키와 네이버 쇼핑 검색 API의 `NAVER_SHOPPING_CLIENT_ID`, `NAVER_SHOPPING_CLIENT_SECRET`을 입력합니다. `EXPO_PUBLIC_API_BASE_URL`에는 이 API 서비스의 HTTPS 주소를 넣습니다.
 5. 배포가 완료되면 Render API 주소에서 웹앱이 열리고, 모바일 앱도 같은 주소의 API를 사용합니다. GitHub의 main push마다 Render가 자동 배포하고 Actions가 타입 검사를 수행합니다.
 
 ### `Route not found.`가 표시될 때
 
 `PATCH /api/v1/auth/account`, `DELETE /api/v1/products/:productId`를 포함한 관리 API는 현재 서버 코드에 등록되어 있습니다. 이 문구가 보이면 데이터베이스 문제가 아니라, 앱이 이전 Render 배포본 또는 다른 API 주소를 사용 중인 것입니다. 최신 커밋을 GitHub `main`에 push하고 Render 배포가 완료됐는지 확인한 뒤, 모바일 앱의 `EXPO_PUBLIC_API_BASE_URL`이 해당 Render 서비스 주소인지 확인합니다.
 
-## 중고 RAM 중앙값 차트
+## 일간 RAM 중앙값 차트
 
-외부 쇼핑몰·리서치 사이트를 크롤링하거나 제휴 API를 호출하지 않습니다. 메모리 차트는 앱에 현재 올라와 있고 판매 상태가 `active`인 중고 RAM 게시글을 카테고리별로 조회합니다. 서버가 희망가를 오름차순으로 정렬한 뒤 최소가, 최대가, 중앙값과 정렬된 가격 배열을 응답하므로 판매 완료·숨김·삭제된 글은 차트에서 즉시 제외됩니다.
+Render 크론은 매일 한국시간 00:00(UTC 15:00)에 네이버 쇼핑 검색 API를 호출합니다. DDR4와 DDR5의 각 지원 용량마다 최대 100개 검색 결과를 요청하며, 중고·렌탈·해외직구 결과는 제외합니다. 서버는 해당 규격·용량에 맞는 결과의 `lprice`로 중앙값과 최저가를, `hprice`(없으면 `lprice`)로 최고가를 계산한 뒤 일간 집계값만 저장합니다. 기본 조회 기간은 1주이며 앱에서 2주·3주로 바꿀 수 있습니다.

@@ -10,7 +10,7 @@ import { loadFavoriteProductIds, saveFavoriteProductIds } from './src/favorite-s
 import { loadChatNotifications, saveChatNotifications, type ChatNotification } from './src/notification-storage';
 import { defaultAppSettings, loadAppSettings, saveAppSettings, type AppSettings, type CustomProductAlertCriteria } from './src/app-settings-storage';
 import { notifyCustomProduct, notifyFavoritePriceDrop, notifyIncomingChat, prepareChatNotifications } from './src/chat-notifications';
-import { adminApi, chatApi, favoritesApi, imageUrl, listingPriceApi, productsApi, reportsApi, supportApi, type AdminInquiry, type AdminReport, type AdminUser, type ChatThread, type ListingPriceChart, type Product, type ProductInput, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
+import { adminApi, chatApi, favoritesApi, imageUrl, listingPriceApi, productsApi, reportsApi, supportApi, type AdminInquiry, type AdminReport, type AdminUser, type ChatThread, type DailyRamMarketChart, type Product, type ProductInput, type RamMarketOptions, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
 
 const navigationIcons = {
   home: require('./assets/nav-home.png'),
@@ -326,62 +326,59 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
 }
 
 function MemoryChartHome() {
-  const [selectedMemory, setSelectedMemory] = useState('');
-  const [options, setOptions] = useState<string[]>([]);
-  const [chart, setChart] = useState<ListingPriceChart | null>(null);
+  return <View style={s.flex}><ScrollView contentContainerStyle={s.memoryChartContent} showsVerticalScrollIndicator={false}><ScreenTitle title="메모리 차트" /><View style={s.memoryChartBody}><RamMarketChart /></View></ScrollView></View>;
+}
+
+function RamMarketChart() {
+  const [options, setOptions] = useState<RamMarketOptions>([]);
+  const [generation, setGeneration] = useState<'DDR4' | 'DDR5'>('DDR4');
+  const [capacityGb, setCapacityGb] = useState<number | null>(null);
+  const [days, setDays] = useState(7);
+  const [chart, setChart] = useState<DailyRamMarketChart | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => {
     let active = true;
-    listingPriceApi.categories().then((categories) => {
+    listingPriceApi.options().then((items) => {
       if (!active) return;
-      setOptions(categories);
-      setSelectedMemory((current) => categories.includes(current) ? current : categories[0] ?? '');
-      if (!categories.length) setLoading(false);
+      setOptions(items);
+      const defaultGeneration = items.some((item) => item.generation === 'DDR4') ? 'DDR4' : items[0]?.generation ?? 'DDR4';
+      setGeneration(defaultGeneration);
+      setCapacityGb(items.find((item) => item.generation === defaultGeneration)?.capacitiesGb[0] ?? null);
+      if (!items.length) setLoading(false);
     }).catch((caught) => {
-      if (active) { setError(caught instanceof Error ? caught.message : '판매글 카테고리를 불러오지 못했습니다.'); setLoading(false); }
+      if (active) { setError(caught instanceof Error ? caught.message : 'RAM 종류를 불러오지 못했습니다.'); setLoading(false); }
     });
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    if (!selectedMemory) return;
+    if (!capacityGb) return;
     let active = true;
     setLoading(true); setError(''); setChart(null);
-    listingPriceApi.chart(selectedMemory).then((data) => { if (active) setChart(data); }).catch((caught) => {
-      if (active) setError(caught instanceof Error ? caught.message : '등록된 판매글 가격을 불러오지 못했습니다.');
+    listingPriceApi.chart(generation, capacityGb, days).then((data) => { if (active) setChart(data); }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : '일간 시세를 불러오지 못했습니다.');
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [selectedMemory]);
-  const distribution = useMemo(() => sampledPrices(chart?.sortedPrices ?? []), [chart]);
-  return <View style={s.flex}>
-    <ScrollView contentContainerStyle={s.memoryChartContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-      <ScreenTitle title="메모리 차트" />
-      <View style={s.memoryChartBody}>
-        <View style={[s.memoryPickerAnchor, pickerOpen && s.memoryPickerAnchorOpen]}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`램 종류 선택: ${selectedMemory}`} accessibilityState={{ expanded: pickerOpen }} onPress={() => setPickerOpen((current) => !current)} style={[s.memoryPickerTrigger, pickerOpen && s.memoryPickerTriggerOpen]}>
-            <Text numberOfLines={1} style={s.memoryPickerTriggerText}>{selectedMemory || '판매 중인 RAM이 없습니다'}</Text><Text style={[s.memoryPickerChevron, pickerOpen && s.memoryPickerChevronOpen]}>⌄</Text>
-          </Pressable>
-          {pickerOpen ? <View style={s.memoryPickerOverlay}>
-            <ScrollView nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={s.memoryPickerList}>
-              {options.map((option) => <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected: selectedMemory === option }} onPress={() => { setSelectedMemory(option); setPickerOpen(false); }} style={[s.memoryPickerOption, selectedMemory === option && s.memoryPickerOptionSelected]}>
-                <Text style={[s.memoryPickerOptionText, selectedMemory === option && s.memoryPickerOptionTextSelected]}>{option}</Text>{selectedMemory === option ? <Text style={s.memoryPickerCheck}>✓</Text> : null}
-              </Pressable>)}
-            </ScrollView>
-          </View> : null}
-        </View>
-        <View style={s.memoryChartCard}>
-          <View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>현재 등록 판매가 분포 (원)</Text><Text style={s.memoryChartSelection}>{selectedMemory}</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>판매 중</Text></View></View>
-          {loading ? <Loading label="현재 판매글 가격을 불러오는 중이에요" /> : chart?.listingCount ? <PriceDistributionGraph prices={distribution} /> : <Empty title="판매 중인 매물이 없어요" body="해당 규격의 판매글이 등록되면 중앙값과 가격 분포가 표시됩니다." />}
-        </View>
-        {error ? <Text style={s.adminError}>{error}</Text> : null}
-        {chart?.medianPrice !== null && chart?.medianPrice !== undefined ? <View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>현재 중고 RAM 중앙값</Text><Text style={s.weeklyAveragePrice}>{price(chart.medianPrice)}</Text><Text style={s.memoryChartSelection}>판매 중인 매물 {chart.listingCount.toLocaleString('ko-KR')}개 기준</Text></View></View> : null}
-        {chart?.listingCount ? <><View style={s.recentChartHeader}><Text style={s.recentChartTitle}>오름차순 판매가</Text><Text style={s.recentChartHint}>현재 판매글</Text></View>
-          <View style={s.recentPriceCard}><View style={[s.recentPriceRow, s.recentPriceHeading]}><Text style={[s.recentPriceCell, s.recentPriceDate, s.recentPriceHeadingText]}>순번</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>판매가</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>구분</Text></View>{chart.sortedPrices.map((item, index) => <View key={`${item}-${index}`} style={s.recentPriceRow}><Text style={[s.recentPriceCell, s.recentPriceDate]}>{index + 1}</Text><Text style={s.recentPriceCell}>{price(item)}</Text><Text style={[s.recentPriceCell, index === Math.floor((chart.listingCount - 1) / 2) && s.recentPriceAverage]}>{index === Math.floor((chart.listingCount - 1) / 2) ? '중앙값 구간' : ''}</Text></View>)}</View></> : null}
-        <Text style={s.memoryChartDemoNote}>판매 상태가 ‘판매 중’인 중고 RAM 게시글의 희망가만 사용하며, 가격은 낮은 순으로 정렬됩니다.</Text>
-      </View>
-    </ScrollView>
+  }, [generation, capacityGb, days]);
+  const capacities = options.find((item) => item.generation === generation)?.capacitiesGb ?? [];
+  const todayPoint = chart?.points.find((point) => point.date === chart.to) ?? null;
+  function selectGeneration(value: 'DDR4' | 'DDR5') {
+    setGeneration(value);
+    setCapacityGb(options.find((item) => item.generation === value)?.capacitiesGb[0] ?? null);
+  }
+  return <View style={s.ramMarketWrap}>
+    <Text style={s.ramMarketIntro}>네이버 쇼핑 검색 결과를 매일 한국시간 00:00에 수집해 일일 중앙값으로 표시합니다.</Text>
+    <Text style={s.ramMarketLabel}>RAM 규격</Text><View style={s.ramMarketChoices}>{(['DDR4', 'DDR5'] as const).map((item) => <Pressable key={item} onPress={() => selectGeneration(item)} style={[s.ramMarketChoice, generation === item && s.ramMarketChoiceOn]}><Text style={[s.ramMarketChoiceText, generation === item && s.ramMarketChoiceTextOn]}>{item}</Text></Pressable>)}</View>
+    <Text style={s.ramMarketLabel}>용량</Text><View style={s.ramMarketChoices}>{capacities.map((item) => <Pressable key={item} onPress={() => setCapacityGb(item)} style={[s.ramMarketChoice, capacityGb === item && s.ramMarketChoiceOn]}><Text style={[s.ramMarketChoiceText, capacityGb === item && s.ramMarketChoiceTextOn]}>{item}GB</Text></Pressable>)}</View>
+    <Text style={s.ramMarketLabel}>조회 기간</Text><View style={s.ramMarketChoices}>{[7, 14, 21].map((item) => <Pressable key={item} onPress={() => setDays(item)} style={[s.ramMarketChoice, days === item && s.ramMarketChoiceOn]}><Text style={[s.ramMarketChoiceText, days === item && s.ramMarketChoiceTextOn]}>{item / 7}주</Text></Pressable>)}</View>
+    {error ? <Text style={s.adminError}>{error}</Text> : null}
+    {loading ? <Loading label="일간 시세를 불러오는 중이에요" /> : chart?.points.length ? <><View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>오늘의 중앙값</Text><Text style={s.weeklyAveragePrice}>{chart.todayMedianPrice === null ? '수집 대기' : price(chart.todayMedianPrice)}</Text><Text style={s.memoryChartSelection}>{generation} {capacityGb}GB · 오늘 {chart.todaySampleCount.toLocaleString('ko-KR')}개 상품 기준</Text></View></View><View style={s.memoryChartCard}><View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>{days / 7}주 일간 중앙값</Text><Text style={s.memoryChartSelection}>{generation} {capacityGb}GB</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>일간 집계</Text></View></View><DailyMedianGraph points={chart.points} /></View><View style={s.ramMarketSummary}><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>오늘 최저가</Text><Text style={s.metricValue}>{todayPoint ? price(todayPoint.minPrice) : '-'}</Text></View><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>오늘 최고가</Text><Text style={s.metricValue}>{todayPoint ? price(todayPoint.maxPrice) : '-'}</Text></View></View></> : <Empty title="아직 수집된 시세가 없어요" body="자정 수집이 완료되면 이 규격의 일간 중앙값이 표시됩니다." />}
   </View>;
+}
+
+function DailyMedianGraph({ points }: { points: DailyRamMarketChart['points'] }) {
+  const [plotWidth, setPlotWidth] = useState(0); const values = points.map((point) => point.medianPrice); const rawMinimum = Math.min(...values); const rawMaximum = Math.max(...values); const padding = Math.max(1_000, Math.round((rawMaximum - rawMinimum || rawMaximum * .1 || 1_000) * .2)); const minimum = Math.max(0, rawMinimum - padding); const maximum = rawMaximum + padding; const plotHeight = 190; const pointX = (index: number) => points.length < 2 ? 0 : (plotWidth - 8) * index / (points.length - 1); const pointY = (value: number) => 8 + (maximum - value) / (maximum - minimum) * (plotHeight - 20); const labels = [points[0], points[Math.floor((points.length - 1) / 2)], points.at(-1)].filter((point, index, values) => point && values.findIndex((value) => value?.date === point.date) === index) as DailyRamMarketChart['points'];
+  return <View><View style={s.weeklyGraph}><View style={s.weeklyGraphAxis}>{[maximum, (maximum * 2 + minimum) / 3, (maximum + minimum * 2) / 3, minimum].map((value, index) => <Text key={index} style={s.weeklyGraphAxisText}>{Math.round(value / 1000)}K</Text>)}</View><View style={s.weeklyGraphPlot} onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>{[0, 1, 2, 3].map((line) => <View key={line} style={[s.weeklyGraphGridLine, { top: 8 + line * 54 }]} />)}{plotWidth ? <>{values.slice(0, -1).map((value, index) => { const startX = pointX(index); const startY = pointY(value); const endX = pointX(index + 1); const endY = pointY(values[index + 1]); const width = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2); const angle = Math.atan2(endY - startY, endX - startX) * 180 / Math.PI; return <View key={`line-${points[index].date}`} style={[s.weeklyGraphLine, { left: startX, top: startY, width, transform: [{ rotate: `${angle}deg` }] }]} />; })}{values.map((value, index) => <View key={points[index].date} style={[s.weeklyGraphPoint, index === values.length - 1 && s.weeklyGraphPointLast, { left: pointX(index) - 5, top: pointY(value) - 5 }]} />)}</> : null}</View></View><View style={s.ramMarketDates}>{labels.map((point) => <Text key={point.date} style={s.weeklyGraphDay}>{point.date.slice(5).replace('-', '.')}</Text>)}</View></View>;
 }
 
 function sampledPrices(prices: readonly number[]) {
@@ -570,37 +567,7 @@ function AdminDashboard({ session, onSignOut }: { session: AuthSession; onSignOu
 }
 
 function AdminMarketChart() {
-  const a = StyleSheet.create({
-    wrap: { gap: 14 }, intro: { color: '#68736F', fontSize: 13, lineHeight: 19 }, categories: { gap: 8, paddingVertical: 2 }, category: { paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: '#D7DDDA', borderRadius: 20, backgroundColor: '#FFFFFF' }, categoryOn: { borderColor: green, backgroundColor: green }, categoryText: { color: '#40514C', fontSize: 12, fontWeight: '800' }, categoryTextOn: { color: '#FFFFFF' }, summary: { flexDirection: 'row', borderWidth: 1, borderColor: '#D7E5E0', borderRadius: 15, backgroundColor: '#FFFFFF' }, summaryCell: { flex: 1, alignItems: 'center', paddingVertical: 14, paddingHorizontal: 8, borderRightWidth: 1, borderRightColor: '#E4EBE8' }, metricLabel: { color: '#68736F', fontSize: 11, fontWeight: '800' }, metricValue: { marginTop: 5, color: green, fontSize: 14, fontWeight: '900', textAlign: 'center' }, card: { padding: 16, borderWidth: 1, borderColor: '#D7E5E0', borderRadius: 15, backgroundColor: '#FFFFFF' }, title: { color: '#16201F', fontSize: 16, fontWeight: '800' }, sub: { marginTop: 4, marginBottom: 12, color: '#68736F', fontSize: 12 }
-  });
-  const [categories, setCategories] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [chart, setChart] = useState<ListingPriceChart | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    let active = true;
-    listingPriceApi.categories().then((items) => {
-      if (!active) return;
-      setCategories(items);
-      setSelectedCategory((current) => items.includes(current) ? current : items[0] ?? '');
-      if (!items.length) setLoading(false);
-    }).catch((caught) => { if (active) { setError(caught instanceof Error ? caught.message : '차트 종류를 불러오지 못했습니다.'); setLoading(false); } });
-    return () => { active = false; };
-  }, []);
-  useEffect(() => {
-    if (!selectedCategory) return;
-    let active = true;
-    setLoading(true); setError('');
-    listingPriceApi.chart(selectedCategory).then((data) => { if (active) setChart(data); }).catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : '차트 데이터를 불러오지 못했습니다.'); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [selectedCategory]);
-  const prices = useMemo(() => sampledPrices(chart?.sortedPrices ?? []), [chart]);
-  return <View style={a.wrap}>
-    <Text style={a.intro}>판매 중인 게시글을 규격·클럭·용량 기준으로 집계합니다.</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={a.categories}>{categories.map((category) => <Pressable key={category} onPress={() => setSelectedCategory(category)} style={[a.category, selectedCategory === category && a.categoryOn]}><Text style={[a.categoryText, selectedCategory === category && a.categoryTextOn]}>{category}</Text></Pressable>)}</ScrollView>
-    {loading ? <Loading label="판매가 분포를 불러오는 중이에요" /> : error ? <Empty title="차트를 불러오지 못했어요" body={error} /> : chart?.listingCount ? <><View style={a.summary}><View style={a.summaryCell}><Text style={a.metricLabel}>최저가</Text><Text style={a.metricValue}>{price(chart.minPrice ?? 0)}</Text></View><View style={a.summaryCell}><Text style={a.metricLabel}>중앙값</Text><Text style={a.metricValue}>{price(chart.medianPrice ?? 0)}</Text></View><View style={a.summaryCell}><Text style={a.metricLabel}>최고가</Text><Text style={a.metricValue}>{price(chart.maxPrice ?? 0)}</Text></View></View><View style={a.card}><Text style={a.title}>{selectedCategory}</Text><Text style={a.sub}>판매 중 {chart.listingCount.toLocaleString('ko-KR')}개 · 가격 분포</Text><PriceDistributionGraph prices={prices} /></View></> : <Empty title="판매 중인 매물이 없어요" body="판매글이 등록되면 이곳에 가격 분포가 표시됩니다." />}
-  </View>;
+  return <RamMarketChart />;
 }
 
 function AdminReportCard({ report, showConversation, onConversation, onIgnore, onDeleteProduct, onSuspend, onCancelSuspension, onDeleteUser }: { report: AdminReport; showConversation: boolean; onConversation: () => void; onIgnore: () => void; onDeleteProduct: () => void; onSuspend: (duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent') => void; onCancelSuspension: () => void; onDeleteUser: () => void }) { const target = report.reportedUser; return <View style={s.adminCard}><Text style={s.adminCardTitle}>{report.product?.title ?? report.productTitle ?? '삭제된 판매글'}</Text><Text style={s.adminMeta}>신고 대상: {target?.nickname ?? '삭제된 사용자'} · {dateTime(report.createdAt)}</Text><Text style={s.adminMeta}>신고자: {report.reporter?.nickname ?? '삭제된 사용자'}</Text><View style={s.adminActions}>{showConversation && <AdminAction label="채팅 확인" onPress={onConversation} />}{report.product && <AdminAction label="게시글 삭제" danger onPress={() => confirmAction('게시글 삭제', '게시글과 연결된 채팅을 삭제할까요?', onDeleteProduct)} />}{target && <AdminUserActions user={target} onSuspend={onSuspend} onCancel={onCancelSuspension} onDelete={onDeleteUser} />}<AdminAction label="신고 무시" onPress={() => confirmAction('신고 무시', '신고 요청을 목록에서 제거할까요?', onIgnore)} /></View></View>; }
@@ -684,6 +651,7 @@ function relative(value: string) { const minutes = Math.max(0, Math.floor((Date.
 function time(value: string) { return new Intl.DateTimeFormat('ko-KR', { hour: 'numeric', minute: '2-digit' }).format(new Date(value)); }
 
 const s = StyleSheet.create({
+  ramMarketWrap:{gap:10},ramMarketIntro:{marginBottom:6,color:'#68736F',fontSize:13,lineHeight:19},ramMarketLabel:{marginTop:5,color:'#40514C',fontSize:14,fontWeight:'800'},ramMarketChoices:{flexDirection:'row',flexWrap:'wrap',gap:8},ramMarketChoice:{minWidth:66,alignItems:'center',paddingHorizontal:13,paddingVertical:10,borderWidth:1,borderColor:'#D7DDDA',borderRadius:12,backgroundColor:'#FFFFFF'},ramMarketChoiceOn:{borderColor:green,backgroundColor:green},ramMarketChoiceText:{color:'#68736F',fontSize:13,fontWeight:'800'},ramMarketChoiceTextOn:{color:'#FFFFFF'},ramMarketSummary:{flexDirection:'row',overflow:'hidden',borderWidth:1,borderColor:'#D7E5E0',borderRadius:15,backgroundColor:'#FFFFFF'},ramMarketSummaryCell:{flex:1,alignItems:'center',paddingVertical:13,paddingHorizontal:8},metricLabel:{color:'#68736F',fontSize:11,fontWeight:'800'},metricValue:{marginTop:5,color:green,fontSize:14,fontWeight:'900',textAlign:'center'},ramMarketDates:{flexDirection:'row',justifyContent:'space-between',marginLeft:34,marginTop:5},
   memoryChartContent:{flexGrow:1,paddingBottom:32},memoryChartBody:{paddingHorizontal:20},memoryPickerAnchor:{position:'relative',zIndex:1},memoryPickerAnchorOpen:{zIndex:10},memoryPickerTrigger:{height:54,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:15,borderWidth:1,borderColor:'#B9C8C3',borderRadius:14,backgroundColor:'#FFFFFF'},memoryPickerTriggerOpen:{borderColor:green,borderBottomLeftRadius:0,borderBottomRightRadius:0},memoryPickerTriggerText:{flex:1,color:'#16201F',fontSize:16,fontWeight:'800'},memoryPickerChevron:{marginLeft:10,color:green,fontSize:25,fontWeight:'700',transform:[{translateY:-3}]},memoryPickerChevronOpen:{transform:[{rotate:'180deg'},{translateY:3}]},memoryPickerOverlay:{position:'absolute',top:53,left:0,right:0,maxHeight:278,overflow:'hidden',borderWidth:1,borderTopWidth:0,borderColor:green,borderBottomLeftRadius:14,borderBottomRightRadius:14,backgroundColor:'#FFFFFF',elevation:12,shadowColor:'#16201F',shadowOpacity:.16,shadowRadius:12,shadowOffset:{width:0,height:7}},memoryPickerList:{padding:8,gap:6},memoryPickerOption:{minHeight:45,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:12,borderWidth:1,borderColor:'#E4EBE8',borderRadius:10,backgroundColor:'#FFFFFF'},memoryPickerOptionSelected:{borderColor:'#BFD6D0',backgroundColor:'#EAF4F1'},memoryPickerOptionText:{color:'#40514C',fontSize:14,fontWeight:'700'},memoryPickerOptionTextSelected:{color:green,fontWeight:'800'},memoryPickerCheck:{color:green,fontSize:18,fontWeight:'900'},memoryChartCard:{minHeight:310,marginTop:14,padding:16,borderWidth:1,borderColor:'#D7E5E0',borderRadius:18,backgroundColor:'#FFFFFF'},memoryChartCardTop:{flexDirection:'row',alignItems:'flex-start',justifyContent:'space-between',gap:12},memoryChartLabel:{color:'#40514C',fontSize:16,fontWeight:'800'},memoryChartSelection:{marginTop:4,color:'#89948F',fontSize:12,fontWeight:'700'},memoryChartLive:{flexDirection:'row',alignItems:'center',gap:4,paddingHorizontal:8,paddingVertical:5,borderRadius:10,backgroundColor:'#EAF4F1'},memoryChartLiveDot:{color:green,fontSize:10},memoryChartLiveText:{color:green,fontSize:11,fontWeight:'800'},weeklyGraph:{height:198,flexDirection:'row',marginTop:19},weeklyGraphAxis:{width:34,justifyContent:'space-between',paddingTop:1,paddingBottom:7},weeklyGraphAxisText:{color:'#89948F',fontSize:11,fontWeight:'700'},weeklyGraphPlot:{position:'relative',flex:1,height:190,borderLeftWidth:1,borderBottomWidth:1,borderColor:'#D7E5E0'},weeklyGraphGridLine:{position:'absolute',right:0,left:0,height:1,borderTopWidth:1,borderStyle:'dashed',borderColor:'#DDE8E4'},weeklyGraphLine:{position:'absolute',height:3,borderRadius:3,backgroundColor:green,transformOrigin:'left center'},weeklyGraphPoint:{position:'absolute',width:10,height:10,borderWidth:2,borderColor:green,borderRadius:5,backgroundColor:'#FFFFFF'},weeklyGraphPointLast:{width:14,height:14,borderWidth:3,borderRadius:7,backgroundColor:'#EAF4F1',transform:[{translateX:-2},{translateY:-2}]},weeklyGraphDays:{flexDirection:'row',justifyContent:'space-between',marginLeft:34,marginTop:5},weeklyGraphDay:{color:'#68736F',fontSize:12,fontWeight:'700'},weeklyAverageCard:{minHeight:125,flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:14,padding:19,borderWidth:1,borderColor:'#D7E5E0',borderRadius:18,backgroundColor:'#FFFFFF'},weeklyAverageLabel:{color:'#40514C',fontSize:16,fontWeight:'800'},weeklyAveragePrice:{marginTop:8,color:'#16201F',fontSize:31,fontWeight:'900'},weeklyAverageChange:{flexDirection:'row',alignItems:'center',gap:7,paddingHorizontal:15,paddingVertical:12,borderRadius:15,backgroundColor:'#EAF4F1'},weeklyAverageArrow:{color:green,fontSize:14},weeklyAverageChangeText:{color:green,fontSize:20,fontWeight:'900'},recentChartHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:28,marginBottom:11},recentChartTitle:{color:'#16201F',fontSize:20,fontWeight:'900'},recentChartHint:{color:green,fontSize:13,fontWeight:'800'},recentPriceCard:{overflow:'hidden',borderWidth:1,borderColor:'#D7E5E0',borderRadius:16,backgroundColor:'#FFFFFF'},recentPriceRow:{minHeight:54,flexDirection:'row',alignItems:'center',paddingHorizontal:12,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},recentPriceHeading:{minHeight:44,backgroundColor:'#F5FAF8'},recentPriceCell:{flex:1,color:'#24312D',fontSize:12,fontWeight:'700',textAlign:'center'},recentPriceDate:{flex:1.16,textAlign:'left',color:'#68736F'},recentPriceHeadingText:{color:'#68736F',fontSize:12,fontWeight:'800'},recentPriceAverage:{color:green,fontWeight:'900'},memoryChartDemoNote:{marginTop:12,color:'#89948F',fontSize:11,textAlign:'center'},
   composerFixed:{alignItems:'center'},messageInputFixed:{height:48,maxHeight:48},sendFixed:{height:48,justifyContent:'center'},
   headerBellButton:{width:40,minWidth:40,height:40,paddingHorizontal:0,borderWidth:0,borderRadius:12,backgroundColor:'transparent'},bellIcon:{width:21,height:22,alignItems:'center'},bellDome:{position:'absolute',top:2,width:14,height:15,borderWidth:2,borderBottomWidth:0,borderColor:green,borderTopLeftRadius:8,borderTopRightRadius:8},bellRim:{position:'absolute',top:16,width:19,height:3,borderRadius:3,backgroundColor:green},bellClapper:{position:'absolute',top:20,width:5,height:3,borderRadius:3,backgroundColor:green},pageTitleRow:{height:61,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20},pageTitleInRow:{marginTop:0,paddingHorizontal:0},priceStatusRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:5},productListStatus:{alignSelf:'auto',paddingHorizontal:10,paddingVertical:5,borderRadius:10,fontSize:13},detailStatus:{marginTop:17,color:'#16201F',fontSize:25,fontWeight:'800'},navNotificationBadgeLarge:{position:'absolute',top:-5,right:-12,minWidth:23,height:23,alignItems:'center',justifyContent:'center',paddingHorizontal:5,borderWidth:2,borderColor:'#FFFFFF',borderRadius:12,backgroundColor:'#CF4A58'},navNotificationBadgeTextLarge:{color:'#FFFFFF',fontSize:12,fontWeight:'900'},notificationType:{color:green,fontSize:12,fontWeight:'800'},notificationCardUnread:{borderColor:'#9EC8BE',backgroundColor:'#F8FCFA'},photoViewerOverlay:{flex:1,alignItems:'center',justifyContent:'center',padding:20,backgroundColor:'rgba(5,14,12,.78)'},photoViewerDismiss:{position:'absolute',top:0,right:0,bottom:0,left:0},photoViewerCard:{width:'100%',maxWidth:720,maxHeight:'88%',alignItems:'center',padding:16,borderRadius:20,backgroundColor:'#FFFFFF'},photoViewerImageWrap:{width:'100%',height:430,alignItems:'center',justifyContent:'center',overflow:'hidden'},photoViewerImage:{width:'100%',height:'100%'},photoViewerImageZoomed:{width:'165%',height:'165%'},photoViewerHint:{marginTop:12,color:'#68736F',fontSize:12,fontWeight:'700'},photoViewerClose:{marginTop:14,paddingHorizontal:22,paddingVertical:10,borderRadius:11,backgroundColor:green},photoViewerCloseText:{color:'#FFFFFF',fontSize:14,fontWeight:'800'},adminSidebarSignOutCentered:{alignItems:'center'},settingsStandard:{paddingHorizontal:20,paddingTop:0,paddingBottom:24},
