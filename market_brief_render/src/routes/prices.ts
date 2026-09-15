@@ -26,7 +26,7 @@ ramPriceRouter.get('/market-chart', async (request, response, next) => {
     if (error) throw error;
     const grouped = new Map<string, { collectedOn: string; productCount: number; minPrice: number; maxPrice: number; weightedTotal: number; sources: string[] }>();
     for (const item of data ?? []) {
-      const current = grouped.get(item.collected_on) ?? { collectedOn: item.collected_on, productCount: 0, minPrice: item.min_price, maxPrice: item.max_price, weightedTotal: 0, sources: [] };
+      const current = grouped.get(item.collected_on) ?? { collectedOn: item.collected_on, productCount: 0, minPrice: item.min_price, maxPrice: item.max_price, weightedTotal: 0, sources: [] as string[] };
       current.productCount += item.product_count;
       current.minPrice = Math.min(current.minPrice, item.min_price);
       current.maxPrice = Math.max(current.maxPrice, item.max_price);
