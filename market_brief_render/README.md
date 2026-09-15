@@ -69,8 +69,8 @@ CLI 없이 Supabase SQL Editor를 쓴다면 `supabase/migrations`의 SQL 파일�
 | GET | `/api/v1/admin/inquiries` | 관리자 | 관리자 문의 목록 조회 |
 | GET/POST | `/api/v1/admin/inquiries/:inquiryId/messages` | 관리자 | 문의 대화 조회·답변 |
 | PATCH | `/api/v1/admin/inquiries/:inquiryId/close` | 관리자 | 문의 처리 완료 |
-| GET | `/api/v1/ram-prices/options` | - | DDR4/DDR5 및 선택 가능한 용량 |
-| GET | `/api/v1/ram-prices/chart?generation=DDR5&capacityGb=16&days=7` | - | 기간별 일간 최저가·최고가·중앙값 |
+| GET | `/api/v1/ram-prices/options` | - | 활성 판매글을 DDR 규격·용량으로 묶은 선택 항목 |
+| GET | `/api/v1/ram-prices/chart?generation=DDR5&capacityGb=16` | - | 모든 클럭을 합산한 활성 판매글 가격 분포·최저가·최고가·중앙값 |
 
 `POST /api/v1/messages` 본문은 `{ "productId", "recipientId", "content" }`이고, 조회에는 선택적으로 `productId`, `otherUserId` 쿼리를 사용할 수 있습니다. 메모리 차트는 `products` 테이블에서 `status = active`인 게시글의 `asking_price`를 직접 읽어 낮은 가격순으로 정렬한 뒤 중앙값을 계산합니다.
 

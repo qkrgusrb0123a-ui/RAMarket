@@ -12,3 +12,10 @@ export function normalizeRamSpec(category: string): string {
   if (!generation || !clock || !capacity) return value;
   return `DDR${generation} · ${clock}MHz · ${capacity}GB`;
 }
+
+/** Reads the normalized RAM category used by marketplace listings. */
+export function parseRamSpec(category: string) {
+  const match = /^(DDR[45]) · (\d{3,5})MHz · (\d+)GB$/.exec(category.trim());
+  if (!match) return null;
+  return { generation: match[1] as 'DDR4' | 'DDR5', clockMhz: Number(match[2]), capacityGb: Number(match[3]) };
+}

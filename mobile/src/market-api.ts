@@ -70,8 +70,8 @@ export type AdminUser = { id: string; loginId: string; nickname: string; status:
 export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
 export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
 export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
-export type ListingMarketOption = { generation: 'DDR4' | 'DDR5'; clockMhz: number; capacityGb: number; sampleCount: number };
-export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; clockMhz: number; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; prices: number[] };
+export type ListingMarketOption = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number };
+export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; prices: number[] };
 
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
@@ -262,8 +262,8 @@ export const listingPriceApi = {
     const result = await apiRequest<{ data: ListingMarketOption[] }>('/api/v1/ram-prices/options');
     return result.data;
   },
-  async chart(generation: 'DDR4' | 'DDR5', clockMhz: number, capacityGb: number) {
-    const result = await apiRequest<{ data: ListingMarketChart }>(`/api/v1/ram-prices/chart?generation=${generation}&clockMhz=${clockMhz}&capacityGb=${capacityGb}`);
+  async chart(generation: 'DDR4' | 'DDR5', capacityGb: number) {
+    const result = await apiRequest<{ data: ListingMarketChart }>(`/api/v1/ram-prices/chart?generation=${generation}&capacityGb=${capacityGb}`);
     return result.data;
   }
 };

@@ -5,6 +5,7 @@ export type CustomProductAlertCriteria = {
   memoryStandards: Array<'DDR4' | 'DDR5'>;
   clocks: Array<'2666MHz' | '3200MHz' | '5600MHz' | '6000MHz'>;
   capacities: Array<'4GB' | '8GB' | '12GB' | '16GB' | '24GB' | '32GB' | '64GB' | '128GB'>;
+  maxAskingPrice: number | null;
 };
 
 export type AppSettings = {
@@ -20,7 +21,7 @@ export type AppSettings = {
 export const defaultAppSettings: AppSettings = {
   favoriteDiscountAlerts: true,
   customProductAlerts: false,
-  customProductAlertCriteria: { productTypes: [], memoryStandards: [], clocks: [], capacities: [] },
+  customProductAlertCriteria: { productTypes: [], memoryStandards: [], clocks: [], capacities: [], maxAskingPrice: null },
   chatAlerts: true,
   doNotDisturbEnabled: false,
   doNotDisturbStartMinutes: 22 * 60,
@@ -50,7 +51,8 @@ function customProductAlertCriteria(value: unknown): CustomProductAlertCriteria 
     productTypes: selectedValues(saved.productTypes ?? saved.productType, ['desktop', 'laptop'] as const),
     memoryStandards: selectedValues(saved.memoryStandards ?? saved.memoryStandard, ['DDR4', 'DDR5'] as const),
     clocks: selectedValues(saved.clocks ?? saved.clock, ['2666MHz', '3200MHz', '5600MHz', '6000MHz'] as const),
-    capacities: selectedValues(saved.capacities ?? saved.capacity, ['4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB'] as const)
+    capacities: selectedValues(saved.capacities ?? saved.capacity, ['4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB'] as const),
+    maxAskingPrice: typeof saved.maxAskingPrice === 'number' && Number.isInteger(saved.maxAskingPrice) && saved.maxAskingPrice >= 0 ? saved.maxAskingPrice : null
   };
 }
 

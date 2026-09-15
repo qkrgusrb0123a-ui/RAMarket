@@ -27,7 +27,7 @@ type ProductSort = 'latest' | 'oldest' | 'priceHigh' | 'priceLow' | 'favorites';
 type ChatTarget = { product: Pick<Product, 'id' | 'title' | 'askingPrice' | 'imagePaths'>; otherUser: { id: string; nickname: string } };
 type Photo = { uri: string; mimeType?: string | null; fileSize?: number | null; storedPath?: string };
 const green = '#0E766E';
-const appVersion = String(Constants.expoConfig?.extra?.gitCommit ?? 'unknown');
+const appVersion = `${Constants.expoConfig?.version ?? '개발 버전'} · ${String(Constants.expoConfig?.extra?.gitCommit ?? 'unknown')}`;
 function showMessage(title: string, message: string) {
   if (Platform.OS === 'web') {
     globalThis.alert(`${title}\n\n${message}`);
@@ -70,12 +70,13 @@ function matchesCustomProductAlert(product: Product, criteria: CustomProductAler
   return (!criteria.productTypes.length || criteria.productTypes.includes(product.productType))
     && (!criteria.memoryStandards.length || criteria.memoryStandards.includes(memoryStandard as CustomProductAlertCriteria['memoryStandards'][number]))
     && (!criteria.clocks.length || criteria.clocks.includes(clock as CustomProductAlertCriteria['clocks'][number]))
-    && (!criteria.capacities.length || criteria.capacities.includes(capacity as CustomProductAlertCriteria['capacities'][number]));
+    && (!criteria.capacities.length || criteria.capacities.includes(capacity as CustomProductAlertCriteria['capacities'][number]))
+    && (criteria.maxAskingPrice === null || product.askingPrice <= criteria.maxAskingPrice);
 }
 
 function customProductAlertSummary(criteria: CustomProductAlertCriteria) {
   const productTypes = criteria.productTypes.map((value) => value === 'desktop' ? '데스크탑용' : '노트북용');
-  return [productTypes.join(', '), criteria.memoryStandards.join(', '), criteria.clocks.join(', '), criteria.capacities.join(', ')].filter(Boolean).join(' · ') || '선택된 항목 없음';
+  return [productTypes.join(', '), criteria.memoryStandards.join(', '), criteria.clocks.join(', '), criteria.capacities.join(', '), criteria.maxAskingPrice === null ? '' : `${price(criteria.maxAskingPrice)} 이하`].filter(Boolean).join(' · ') || '선택된 항목 없음';
 }
 
 export default function App() {
@@ -336,41 +337,80 @@ function RamMarketChart() {
   const [chart, setChart] = useState<ListingMarketChart | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const selectedOptionRef = useRef<ListingMarketOption | null>(null);
+  const generationRef = useRef<'DDR4' | 'DDR5'>('DDR5');
+  useEffect(() => { selectedOptionRef.current = selectedOption; }, [selectedOption]);
+  useEffect(() => { generationRef.current = generation; }, [generation]);
   useEffect(() => {
     let active = true;
-    listingPriceApi.options().then((items) => {
-      if (!active) return;
-      setOptions(items);
-      const defaultGeneration = items.some((item) => item.generation === 'DDR5') ? 'DDR5' : items[0]?.generation ?? 'DDR5';
-      setGeneration(defaultGeneration);
-      setSelectedOption(items.find((item) => item.generation === defaultGeneration) ?? null);
-      if (!items.length) setLoading(false);
-    }).catch((caught) => {
-      if (active) { setError(caught instanceof Error ? caught.message : 'RAM 종류를 불러오지 못했습니다.'); setLoading(false); }
-    });
-    return () => { active = false; };
+    let appIsActive = AppState.currentState === 'active';
+    async function refreshOptions() {
+      try {
+        const items = await listingPriceApi.options();
+        if (!active) return;
+        setOptions(items);
+        const current = selectedOptionRef.current;
+        const next = current && items.find((item) => item.generation === current.generation && item.capacityGb === current.capacityGb)
+          || items.find((item) => item.generation === (current?.generation ?? generationRef.current))
+          || items.find((item) => item.generation === 'DDR5')
+          || items[0]
+          || null;
+        if (current?.generation !== next?.generation || current?.capacityGb !== next?.capacityGb) {
+          selectedOptionRef.current = next;
+          setSelectedOption(next);
+        }
+        if (generationRef.current !== (next?.generation ?? 'DDR5')) {
+          generationRef.current = next?.generation ?? 'DDR5';
+          setGeneration(next?.generation ?? 'DDR5');
+        }
+        if (!items.length) setLoading(false);
+      } catch (caught) {
+        if (active) { setError(caught instanceof Error ? caught.message : 'RAM 종류를 불러오지 못했습니다.'); setLoading(false); }
+      }
+    }
+    void refreshOptions();
+    const timer = setInterval(() => { if (appIsActive) void refreshOptions(); }, 15_000);
+    const subscription = AppState.addEventListener('change', (state) => { appIsActive = state === 'active'; if (appIsActive) void refreshOptions(); });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
   }, []);
   useEffect(() => {
     if (!selectedOption) return;
+    const option = selectedOption;
     let active = true;
-    setLoading(true); setError(''); setChart(null);
-    listingPriceApi.chart(selectedOption.generation, selectedOption.clockMhz, selectedOption.capacityGb).then((data) => { if (active) setChart(data); }).catch((caught) => {
-      if (active) setError(caught instanceof Error ? caught.message : '판매글 시세를 불러오지 못했습니다.');
-    }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [selectedOption]);
+    let appIsActive = AppState.currentState === 'active';
+    async function refreshChart(showLoading: boolean) {
+      if (showLoading) { setLoading(true); setChart(null); }
+      setError('');
+      try {
+        const data = await listingPriceApi.chart(option.generation, option.capacityGb);
+        if (active) setChart(data);
+      } catch (caught) {
+        if (active) setError(caught instanceof Error ? caught.message : '판매글 시세를 불러오지 못했습니다.');
+      } finally {
+        if (active && showLoading) setLoading(false);
+      }
+    }
+    void refreshChart(true);
+    const timer = setInterval(() => { if (appIsActive) void refreshChart(false); }, 15_000);
+    const subscription = AppState.addEventListener('change', (state) => { appIsActive = state === 'active'; if (appIsActive) void refreshChart(false); });
+    return () => { active = false; clearInterval(timer); subscription.remove(); };
+  }, [selectedOption?.capacityGb, selectedOption?.generation]);
   const generationOptions = options.filter((item) => item.generation === generation);
-  const selectionLabel = selectedOption ? `${selectedOption.generation} · ${selectedOption.clockMhz}MHz · ${selectedOption.capacityGb}GB` : '등록된 판매글이 없습니다';
+  const selectionLabel = selectedOption ? `${selectedOption.generation} · ${selectedOption.capacityGb}GB` : '등록된 판매글이 없습니다';
   function selectGeneration(value: 'DDR4' | 'DDR5') {
+    generationRef.current = value;
     setGeneration(value);
-    setSelectedOption(options.find((item) => item.generation === value) ?? null);
+    const next = options.find((item) => item.generation === value) ?? null;
+    selectedOptionRef.current = next;
+    setSelectedOption(next);
   }
   return <View style={s.ramMarketWrap}>
     <Text style={s.ramMarketIntro}>현재 등록된 판매글의 가격 분포를 보여드립니다.</Text>
     <View style={s.ramMarketGenerationChoices}>{(['DDR5', 'DDR4'] as const).map((item) => <Pressable key={item} onPress={() => selectGeneration(item)} style={[s.ramMarketGenerationChoice, generation === item && s.ramMarketGenerationChoiceOn]}><Text style={[s.ramMarketGenerationText, generation === item && s.ramMarketGenerationTextOn]}>{item}</Text></Pressable>)}</View>
-    <View style={s.ramMarketCategoryGrid}>{generationOptions.map((option) => { const active = selectedOption?.clockMhz === option.clockMhz && selectedOption?.capacityGb === option.capacityGb; return <Pressable key={`${option.clockMhz}-${option.capacityGb}`} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => setSelectedOption(option)} style={[s.ramMarketCategory, active && s.ramMarketCategoryOn]}><Text style={[s.ramMarketCategoryText, active && s.ramMarketCategoryTextOn]}>{option.clockMhz}MHz · {option.capacityGb}GB</Text><Text style={[s.ramMarketCategoryCount, active && s.ramMarketCategoryCountOn]}>판매글 {option.sampleCount.toLocaleString('ko-KR')}개</Text></Pressable>; })}</View>
+    <Text style={s.ramMarketLabel}>용량 선택</Text>
+    <View style={s.ramMarketChoices}>{generationOptions.map((option) => { const active = selectedOption?.generation === option.generation && selectedOption?.capacityGb === option.capacityGb; return <Pressable key={option.capacityGb} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={() => { selectedOptionRef.current = option; setSelectedOption(option); }} style={[s.ramMarketChoice, active && s.ramMarketChoiceOn]}><Text style={[s.ramMarketChoiceText, active && s.ramMarketChoiceTextOn]}>{option.capacityGb}GB</Text></Pressable>; })}</View>
     {error ? <Text style={s.adminError}>{error}</Text> : null}
-    {loading ? <Loading label="판매글 시세를 불러오는 중이에요" /> : chart?.sampleCount && chart.medianPrice !== null ? <><View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>중앙값</Text><Text style={s.weeklyAveragePrice}>{price(chart.medianPrice)}</Text><Text style={s.memoryChartSelection}>{selectionLabel} · 판매글 {chart.sampleCount.toLocaleString('ko-KR')}개 기준</Text></View></View><View style={s.ramMarketSummary}><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>최저가</Text><Text style={s.metricValue}>{chart.minPrice === null ? '-' : price(chart.minPrice)}</Text></View><View style={s.ramMarketSummaryDivider} /><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>최고가</Text><Text style={s.metricValue}>{chart.maxPrice === null ? '-' : price(chart.maxPrice)}</Text></View></View><View style={s.memoryChartCard}><View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>현재 판매가 분포</Text><Text style={s.memoryChartSelection}>판매글 {chart.sampleCount.toLocaleString('ko-KR')}개 기준 · 오늘 업데이트</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>판매글 집계</Text></View></View><ListingPriceHistogram prices={chart.prices} /></View></> : <Empty title="등록된 판매글이 없어요" body="이 규격의 판매글이 등록되면 가격 분포가 표시됩니다." />}
+    {loading ? <Loading label="판매글 시세를 불러오는 중이에요" /> : chart?.sampleCount && chart.medianPrice !== null ? <><View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>중앙값</Text><Text style={s.weeklyAveragePrice}>{price(chart.medianPrice)}</Text><Text style={s.memoryChartSelection}>{selectionLabel} · 판매글 {chart.sampleCount.toLocaleString('ko-KR')}개 기준</Text></View></View><View style={s.ramMarketSummary}><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>최저가</Text><Text style={s.metricValue}>{chart.minPrice === null ? '-' : price(chart.minPrice)}</Text></View><View style={s.ramMarketSummaryDivider} /><View style={s.ramMarketSummaryCell}><Text style={s.metricLabel}>최고가</Text><Text style={s.metricValue}>{chart.maxPrice === null ? '-' : price(chart.maxPrice)}</Text></View></View><View style={s.memoryChartCard}><View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>현재 판매가 분포</Text><Text style={s.memoryChartSelection}>판매글 {chart.sampleCount.toLocaleString('ko-KR')}개 기준 · 15초마다 최신화</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>판매글 집계</Text></View></View><ListingPriceHistogram prices={chart.prices} /></View></> : <Empty title="등록된 판매글이 없어요" body="이 규격의 판매글이 등록되면 가격 분포가 표시됩니다." />}
   </View>;
 }
 
@@ -602,8 +642,15 @@ function AppSettingCustomProduct({ value, onPress }: { value: CustomProductAlert
 
 function CustomProductAlertModal({ visible, criteria, onClose, onSave }: { visible: boolean; criteria: CustomProductAlertCriteria; onClose: () => void; onSave: (criteria: CustomProductAlertCriteria) => void }) {
   const [draft, setDraft] = useState<CustomProductAlertCriteria>(criteria);
-  useEffect(() => { if (visible) setDraft(criteria); }, [visible, criteria]);
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={s.timeModalOverlay}><Pressable style={s.timeModalDismiss} onPress={onClose} /><View style={s.customAlertModalSheet}><ScrollView contentContainerStyle={s.customAlertModalContent} showsVerticalScrollIndicator={false}><Text style={s.timeModalTitle}>관심 메모리 선택</Text><Text style={s.timeRangeHint}>원하는 항목을 모두 선택하세요. 선택하지 않은 항목은 전체로 적용됩니다.</Text><MultiChoice label="제품 종류" values={['desktop', 'laptop']} selected={draft.productTypes} onChange={(productTypes) => setDraft((current) => ({ ...current, productTypes }))} /><MultiChoice label="DDR 규격" values={['DDR4', 'DDR5']} selected={draft.memoryStandards} onChange={(memoryStandards) => setDraft((current) => ({ ...current, memoryStandards }))} /><MultiChoice label="클럭" values={['2666MHz', '3200MHz', '5600MHz', '6000MHz']} selected={draft.clocks} onChange={(clocks) => setDraft((current) => ({ ...current, clocks }))} /><MultiChoice label="용량" values={['4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB']} selected={draft.capacities} onChange={(capacities) => setDraft((current) => ({ ...current, capacities }))} /><Pressable onPress={() => { onSave(draft); onClose(); }} style={s.timeDoneButton}><Text style={s.timeDoneText}>선택 완료</Text></Pressable></ScrollView></View></View></Modal>;
+  const [maxPriceText, setMaxPriceText] = useState('');
+  useEffect(() => { if (visible) { setDraft(criteria); setMaxPriceText(criteria.maxAskingPrice === null ? '' : String(criteria.maxAskingPrice)); } }, [visible, criteria]);
+  function save() {
+    const normalized = maxPriceText.trim() ? Number(maxPriceText) : null;
+    if (normalized !== null && (!Number.isInteger(normalized) || normalized < 0)) return showMessage('가격을 확인해 주세요', '0원 이상의 정수 금액으로 입력해 주세요.');
+    onSave({ ...draft, maxAskingPrice: normalized });
+    onClose();
+  }
+  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={s.timeModalOverlay}><Pressable style={s.timeModalDismiss} onPress={onClose} /><View style={s.customAlertModalSheet}><ScrollView contentContainerStyle={s.customAlertModalContent} showsVerticalScrollIndicator={false}><Text style={s.timeModalTitle}>관심 메모리 선택</Text><Text style={s.timeRangeHint}>원하는 항목을 모두 선택하세요. 선택하지 않은 항목은 전체로 적용됩니다.</Text><MultiChoice label="제품 종류" values={['desktop', 'laptop']} selected={draft.productTypes} onChange={(productTypes) => setDraft((current) => ({ ...current, productTypes }))} /><MultiChoice label="DDR 규격" values={['DDR4', 'DDR5']} selected={draft.memoryStandards} onChange={(memoryStandards) => setDraft((current) => ({ ...current, memoryStandards }))} /><MultiChoice label="클럭" values={['2666MHz', '3200MHz', '5600MHz', '6000MHz']} selected={draft.clocks} onChange={(clocks) => setDraft((current) => ({ ...current, clocks }))} /><MultiChoice label="용량" values={['4GB', '8GB', '12GB', '16GB', '24GB', '32GB', '64GB', '128GB']} selected={draft.capacities} onChange={(capacities) => setDraft((current) => ({ ...current, capacities }))} /><View style={s.choice}><Text style={s.choiceLabel}>가격 설정</Text><View style={s.amount}><TextInput accessibilityLabel="관심 메모리 최대 가격" value={maxPriceText} onChangeText={(value) => setMaxPriceText(value.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" style={s.amountInput} maxLength={12} placeholder="비워 두면 가격 제한 없음" placeholderTextColor="#89948F" /><Text style={s.won}>원 이하</Text></View><Text style={s.customAlertPriceHint}>설정한 가격 이하의 새 판매글만 알려드려요.</Text></View><Pressable onPress={save} style={s.timeDoneButton}><Text style={s.timeDoneText}>선택 완료</Text></Pressable></ScrollView></View></View></Modal>;
 }
 
 function TimeRangeModal({ visible, startValue, endValue, onClose, onEditStart, onEditEnd }: { visible: boolean; startValue: number; endValue: number; onClose: () => void; onEditStart: () => void; onEditEnd: () => void }) { return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><View style={s.timeModalOverlay}><Pressable style={s.timeModalDismiss} onPress={onClose} /><View style={s.timeModalCard}><Text style={s.timeModalTitle}>방해 금지 시간 설정</Text><Text style={s.timeRangeHint}>시작·종료 시간을 각각 선택해 주세요.</Text><Pressable onPress={onEditStart} style={s.timeRangeRow}><Text style={s.appSettingLabel}>시작 시간</Text><View style={s.rowEnd}><Text style={s.appSettingTimeValue}>{formatSettingsTime(startValue)}</Text><Text style={s.chevron}>›</Text></View></Pressable><Pressable onPress={onEditEnd} style={s.timeRangeRow}><Text style={s.appSettingLabel}>종료 시간</Text><View style={s.rowEnd}><Text style={s.appSettingTimeValue}>{formatSettingsTime(endValue)}</Text><Text style={s.chevron}>›</Text></View></Pressable><Pressable onPress={onClose} style={s.timeDoneButton}><Text style={s.timeDoneText}>닫기</Text></Pressable></View></View></Modal>; }
@@ -652,7 +699,7 @@ const s = StyleSheet.create({
   loginFooter:{position:'absolute',right:20,left:20,bottom:18,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},loginFooterButton:{padding:10},settingsSupportButton:{position:'absolute',right:20,bottom:18,padding:10},supportButtonText:{color:green,fontSize:14,fontWeight:'800'},supportComposer:{marginBottom:12},supportClosed:{padding:16,color:'#B9382F',fontSize:14,fontWeight:'800',textAlign:'center'},supportCloseButton:{width:40,height:40,alignItems:'center',justifyContent:'center'},supportCloseText:{color:'#B9382F',fontSize:14,fontWeight:'800'},lowerBack:{marginTop:10},terms:{flexGrow:1,padding:24,paddingBottom:42},termsTitle:{color:'#16201F',fontSize:22,fontWeight:'800',lineHeight:30},termsSummary:{marginTop:20,color:'#40514C',fontSize:15,lineHeight:24},termsDetailButton:{alignSelf:'flex-start',marginTop:22,paddingHorizontal:16,paddingVertical:11,borderRadius:11,backgroundColor:'#EAF4F1'},termsDetailButtonText:{color:green,fontSize:15,fontWeight:'800'},termsDetail:{marginTop:20,color:'#40514C',fontSize:15,lineHeight:24},termsList:{marginTop:10,color:'#40514C',fontSize:15,lineHeight:24},
   accountPhoto:{width:116,height:116,alignSelf:'center',alignItems:'center',justifyContent:'center',marginBottom:8,borderRadius:58,overflow:'hidden',backgroundColor:'#DDF3ED'},accountPhotoImage:{width:'100%',height:'100%'},accountPhotoHint:{position:'absolute',bottom:0,width:'100%',paddingVertical:5,color:'#fff',fontSize:11,fontWeight:'800',textAlign:'center',backgroundColor:'rgba(14,118,110,.78)'},readonly:{minHeight:53,justifyContent:'center',paddingHorizontal:14,borderRadius:13,backgroundColor:'#F1F6F4'},readonlyText:{color:'#68736F',fontSize:15},
   settingsRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:18,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},rowEnd:{flexDirection:'row',alignItems:'center',gap:8},settingsCount:{color:green,fontSize:14,fontWeight:'800'},chevron:{color:'#89948F',fontSize:27,fontWeight:'300'},avatarImage:{width:'100%',height:'100%',borderRadius:23},headerActionSpacer:{width:45,height:37},
-  appSettings:{flexGrow:1,padding:20,paddingBottom:34},appSettingsSection:{marginTop:14,marginBottom:8,color:'#68736F',fontSize:13,fontWeight:'800'},appSettingsGroup:{overflow:'hidden',borderWidth:1,borderColor:'#E4EBE8',borderRadius:14,backgroundColor:'#FFFFFF'},appSettingRow:{minHeight:78,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:15,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},appSettingButtonRow:{minHeight:62,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:15,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},appSettingCopy:{flex:1,paddingRight:14},appSettingToggle:{alignSelf:'stretch',minWidth:52,alignItems:'flex-end',justifyContent:'center'},appSettingLabel:{color:'#16201F',fontSize:16,fontWeight:'700'},appSettingDetail:{marginTop:4,color:'#89948F',fontSize:12,lineHeight:17},appSettingTimeValue:{color:green,fontSize:15,fontWeight:'800'},appSettingsHint:{marginTop:11,color:'#89948F',fontSize:12,lineHeight:18},appVersionBar:{minHeight:48,justifyContent:'center',paddingHorizontal:20,borderTopWidth:1,borderTopColor:'#E9EEEC',backgroundColor:'#FFFFFF'},appVersion:{color:'#89948F',fontSize:12,fontWeight:'700'},timeModalOverlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(22,32,31,.32)'},timeModalDismiss:{position:'absolute',top:0,right:0,bottom:0,left:0},timeModalCard:{padding:22,paddingBottom:34,borderTopLeftRadius:24,borderTopRightRadius:24,backgroundColor:'#FFFFFF'},customAlertModalSheet:{maxHeight:'82%',borderTopLeftRadius:24,borderTopRightRadius:24,overflow:'hidden',backgroundColor:'#FFFFFF'},customAlertModalContent:{padding:22,paddingBottom:34},timeModalTitle:{color:'#16201F',fontSize:18,fontWeight:'800',textAlign:'center'},timeRangeHint:{marginTop:8,color:'#89948F',fontSize:13,textAlign:'center'},timeRangeRow:{minHeight:64,flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:18,paddingHorizontal:14,borderWidth:1,borderColor:'#E4EBE8',borderRadius:13},timePeriodRow:{flexDirection:'row',justifyContent:'center',gap:8,marginTop:20},timePeriodButton:{minWidth:76,alignItems:'center',paddingVertical:10,borderWidth:1,borderColor:'#D7DDDA',borderRadius:12},timePeriodButtonOn:{borderColor:green,backgroundColor:'#EAF4F1'},timePeriodText:{color:'#68736F',fontWeight:'800'},timePeriodTextOn:{color:green},timeHourGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:9,marginTop:22},timeHourButton:{width:'30%',alignItems:'center',paddingVertical:11,borderRadius:11,backgroundColor:'#F1F6F4'},timeHourButtonOn:{backgroundColor:green},timeHourText:{color:'#40514C',fontSize:14,fontWeight:'800'},timeHourTextOn:{color:'#FFFFFF'},timeDoneButton:{alignItems:'center',marginTop:22,paddingVertical:14,borderRadius:13,backgroundColor:green},timeDoneText:{color:'#FFFFFF',fontSize:16,fontWeight:'800'},
+  appSettings:{flexGrow:1,padding:20,paddingBottom:34},appSettingsSection:{marginTop:14,marginBottom:8,color:'#68736F',fontSize:13,fontWeight:'800'},appSettingsGroup:{overflow:'hidden',borderWidth:1,borderColor:'#E4EBE8',borderRadius:14,backgroundColor:'#FFFFFF'},appSettingRow:{minHeight:78,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:15,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},appSettingButtonRow:{minHeight:62,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:15,borderBottomWidth:1,borderBottomColor:'#EDF0EF'},appSettingCopy:{flex:1,paddingRight:14},appSettingToggle:{alignSelf:'stretch',minWidth:52,alignItems:'flex-end',justifyContent:'center'},appSettingLabel:{color:'#16201F',fontSize:16,fontWeight:'700'},appSettingDetail:{marginTop:4,color:'#89948F',fontSize:12,lineHeight:17},appSettingTimeValue:{color:green,fontSize:15,fontWeight:'800'},appSettingsHint:{marginTop:11,color:'#89948F',fontSize:12,lineHeight:18},appVersionBar:{minHeight:48,justifyContent:'center',paddingHorizontal:20,borderTopWidth:1,borderTopColor:'#E9EEEC',backgroundColor:'#FFFFFF'},appVersion:{color:'#89948F',fontSize:12,fontWeight:'700'},timeModalOverlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(22,32,31,.32)'},timeModalDismiss:{position:'absolute',top:0,right:0,bottom:0,left:0},timeModalCard:{padding:22,paddingBottom:34,borderTopLeftRadius:24,borderTopRightRadius:24,backgroundColor:'#FFFFFF'},customAlertModalSheet:{maxHeight:'82%',borderTopLeftRadius:24,borderTopRightRadius:24,overflow:'hidden',backgroundColor:'#FFFFFF'},customAlertModalContent:{padding:22,paddingBottom:34},timeModalTitle:{color:'#16201F',fontSize:18,fontWeight:'800',textAlign:'center'},timeRangeHint:{marginTop:8,color:'#89948F',fontSize:13,textAlign:'center'},timeRangeRow:{minHeight:64,flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:18,paddingHorizontal:14,borderWidth:1,borderColor:'#E4EBE8',borderRadius:13},timePeriodRow:{flexDirection:'row',justifyContent:'center',gap:8,marginTop:20},timePeriodButton:{minWidth:76,alignItems:'center',paddingVertical:10,borderWidth:1,borderColor:'#D7DDDA',borderRadius:12},timePeriodButtonOn:{borderColor:green,backgroundColor:'#EAF4F1'},timePeriodText:{color:'#68736F',fontWeight:'800'},timePeriodTextOn:{color:green},timeHourGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:9,marginTop:22},timeHourButton:{width:'30%',alignItems:'center',paddingVertical:11,borderRadius:11,backgroundColor:'#F1F6F4'},timeHourButtonOn:{backgroundColor:green},timeHourText:{color:'#40514C',fontSize:14,fontWeight:'800'},timeHourTextOn:{color:'#FFFFFF'},timeDoneButton:{alignItems:'center',marginTop:22,paddingVertical:14,borderRadius:13,backgroundColor:green},timeDoneText:{color:'#FFFFFF',fontSize:16,fontWeight:'800'},customAlertPriceHint:{marginTop:7,color:'#89948F',fontSize:12,lineHeight:17},
   prominentChoice:{marginTop:20},
   prominentChoiceLabel:{color:green,fontSize:15,fontWeight:'800'},
   categoryToolbar:{height:62,flexDirection:'row',alignItems:'center',paddingHorizontal:20},categoriesFixed:{flex:1,flexDirection:'row',gap:5},categoryCompact:{paddingHorizontal:8},sortTextButton:{height:38,alignItems:'center',justifyContent:'center',paddingHorizontal:5,marginLeft:2},sortToggleText:{color:green,fontSize:12,fontWeight:'800'},layoutToggle:{width:38,height:38,alignItems:'center',justifyContent:'center',marginLeft:4,borderWidth:1,borderColor:'#B9C8C3',borderRadius:10,backgroundColor:'#F8FBFA'},layoutGridIcon:{width:16,height:16,flexDirection:'row',flexWrap:'wrap',gap:3},layoutGridCell:{width:6.5,height:6.5,borderRadius:1,backgroundColor:green},layoutListIcon:{width:18,gap:3},layoutListRow:{flexDirection:'row',alignItems:'center',gap:3},layoutListDot:{width:4,height:4,borderRadius:1,backgroundColor:green},layoutListLine:{flex:1,height:3,borderRadius:2,backgroundColor:green},sortModalOverlay:{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(22,32,31,.32)'},sortModalCard:{padding:20,paddingBottom:32,borderTopLeftRadius:24,borderTopRightRadius:24,backgroundColor:'#FFFFFF'},sortOption:{minHeight:50,flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginTop:8,paddingHorizontal:14,borderWidth:1,borderColor:'#E4EBE8',borderRadius:12},sortOptionOn:{borderColor:green,backgroundColor:'#EAF4F1'},sortOptionText:{color:'#40514C',fontSize:15,fontWeight:'700'},sortOptionTextOn:{color:green,fontWeight:'800'},sortOptionCheck:{color:green,fontSize:18,fontWeight:'900'},
