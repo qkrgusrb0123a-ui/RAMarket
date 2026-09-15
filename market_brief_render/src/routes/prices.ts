@@ -3,39 +3,55 @@ import { z } from 'zod';
 import { supabaseForRequest } from '../lib/supabase.js';
 
 export const ramPriceRouter = Router();
-const danawaResearchSource = 'danawa-research-licensed-feed';
 
-ramPriceRouter.get('/market-specs', async (_request, response, next) => {
+/**
+ * Lists the RAM categories that currently have an active marketplace listing.
+ * The chart deliberately reads the marketplace rather than retaining a copied
+ * price feed, so sold or removed listings stop affecting the median at once.
+ */
+ramPriceRouter.get('/listing-categories', async (request, response, next) => {
   try {
-    const { data, error } = await supabaseForRequest(_request).from('ram_market_daily_summaries').select('ram_spec').eq('source', danawaResearchSource).order('ram_spec');
+    const { data, error } = await supabaseForRequest(request)
+      .from('products')
+      .select('category')
+      .eq('status', 'active');
     if (error) throw error;
-    return response.json({ data: [...new Set((data ?? []).map((item) => item.ram_spec))] });
+    const categories = [...new Set((data ?? [])
+      .map((item) => item.category?.trim())
+      .filter((category): category is string => Boolean(category)))]
+      .sort((left, right) => left.localeCompare(right, 'ko-KR'));
+    return response.set('Cache-Control', 'no-store').json({ data: categories });
   } catch (error) { return next(error); }
 });
 
 /**
- * Returns the licensed Danawa Research chart series. Source rows remain
- * separated in storage so additional providers can be enabled explicitly later.
+ * Returns every active, second-hand listing price in a category in ascending
+ * order, together with its median. All marketplace listings are user-posted
+ * used-RAM listings; only status=active listings are included.
  */
-ramPriceRouter.get('/market-chart', async (request, response, next) => {
+ramPriceRouter.get('/listing-chart', async (request, response, next) => {
   try {
-    const { ramSpec } = z.object({ ramSpec: z.string().trim().min(1).max(100) }).parse(request.query);
-    const { data, error } = await supabaseForRequest(request).from('ram_market_daily_summaries')
-      .select('collected_on,ram_spec,source,product_count,min_price,max_price,average_price')
-      .eq('ram_spec', ramSpec).eq('source', danawaResearchSource).order('collected_on', { ascending: true });
+    const { category } = z.object({ category: z.string().trim().min(1).max(150) }).parse(request.query);
+    const { data, error } = await supabaseForRequest(request)
+      .from('products')
+      .select('asking_price')
+      .eq('status', 'active')
+      .eq('category', category)
+      .order('asking_price', { ascending: true });
     if (error) throw error;
-    const grouped = new Map<string, { collectedOn: string; productCount: number; minPrice: number; maxPrice: number; weightedTotal: number; sources: string[] }>();
-    for (const item of data ?? []) {
-      const current = grouped.get(item.collected_on) ?? { collectedOn: item.collected_on, productCount: 0, minPrice: item.min_price, maxPrice: item.max_price, weightedTotal: 0, sources: [] as string[] };
-      current.productCount += item.product_count;
-      current.minPrice = Math.min(current.minPrice, item.min_price);
-      current.maxPrice = Math.max(current.maxPrice, item.max_price);
-      current.weightedTotal += item.average_price * item.product_count;
-      current.sources.push(item.source);
-      grouped.set(item.collected_on, current);
-    }
-    const series = [...grouped.values()].map((item) => ({ collectedOn: item.collectedOn, productCount: item.productCount, minPrice: item.minPrice, maxPrice: item.maxPrice, averagePrice: Math.round(item.weightedTotal / item.productCount), sources: item.sources.sort() }));
-    return response.json({ data: { ramSpec, series } });
+    const sortedPrices = (data ?? []).map((item) => Number(item.asking_price)).filter(Number.isFinite);
+    const middle = Math.floor(sortedPrices.length / 2);
+    const medianPrice = sortedPrices.length === 0 ? null : sortedPrices.length % 2
+      ? sortedPrices[middle]
+      : Math.round((sortedPrices[middle - 1] + sortedPrices[middle]) / 2);
+    return response.set('Cache-Control', 'no-store').json({ data: {
+      category,
+      listingCount: sortedPrices.length,
+      minPrice: sortedPrices[0] ?? null,
+      maxPrice: sortedPrices.at(-1) ?? null,
+      medianPrice,
+      sortedPrices
+    } });
   } catch (error) { return next(error); }
 });
 

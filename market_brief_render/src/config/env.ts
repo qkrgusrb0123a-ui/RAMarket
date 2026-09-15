@@ -1,17 +1,9 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
-const optionalUrl = z.preprocess(
-  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
-  z.string().url().optional()
-);
 const optionalLoginId = z.preprocess(
   (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
   z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9_-]{3,19}$/).optional()
-);
-const optionalSecret = z.preprocess(
-  (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
-  z.string().trim().min(8).optional()
 );
 
 const environmentSchema = z.object({
@@ -22,13 +14,7 @@ const environmentSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000,http://localhost:8081'),
   ADMIN_LOGIN_ID: optionalLoginId,
-  ADMIN_SESSION_SECRET: z.string().min(32),
-  CRON_SECRET: z.string().min(24).optional(),
-  PRICE_FEED_URL: optionalUrl,
-  DANAWA_RESEARCH_PROVIDER_URL: optionalUrl,
-  DANAWA_RESEARCH_PROVIDER_TOKEN: optionalSecret,
-  DANAWA_RESEARCH_DATA_LICENSE_APPROVED: z.preprocess((value) => value === 'true', z.boolean()).default(false),
-  DANAWA_RESEARCH_DATA_LICENSE_REFERENCE: optionalSecret
+  ADMIN_SESSION_SECRET: z.string().min(32)
 });
 
 const parsed = environmentSchema.safeParse(process.env);

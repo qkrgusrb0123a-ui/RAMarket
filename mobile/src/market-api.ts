@@ -70,9 +70,7 @@ export type AdminUser = { id: string; loginId: string; nickname: string; status:
 export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
 export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
 export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
-export type RamMarketChartPoint = { collectedOn: string; productCount: number; minPrice: number; maxPrice: number; averagePrice: number; sources: string[] };
-export type RamMarketRun = { id: string; scheduledFor: string; source: string; authorizationReference: string; status: 'running' | 'completed' | 'partial' | 'failed'; targetPerSpec: number; receivedCount: number; acceptedCount: number; rejectedCount: number; failureReason: string | null; completedAt: string | null };
-export type RamMarketObservation = { collectedOn: string; ramSpec: string; ramGeneration: 'DDR3' | 'DDR4' | 'DDR5'; capacityGb: number; clockMhz: number; price: number; source: string; sourceProductId: string; sourceProductName: string; sourceUrl: string | null };
+export type ListingPriceChart = { category: string; listingCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; sortedPrices: number[] };
 
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
@@ -258,31 +256,18 @@ export const supportApi = {
   }
 };
 
-export const ramMarketApi = {
-  async specs() {
-    const result = await apiRequest<{ data: string[] }>('/api/v1/ram-prices/market-specs');
+export const listingPriceApi = {
+  async categories() {
+    const result = await apiRequest<{ data: string[] }>('/api/v1/ram-prices/listing-categories');
     return result.data;
   },
-  async chart(ramSpec: string) {
-    type ApiPoint = { collectedOn: string; productCount: number; minPrice: number; maxPrice: number; averagePrice: number; sources: string[] };
-    const result = await apiRequest<{ data: { ramSpec: string; series: ApiPoint[] } }>(`/api/v1/ram-prices/market-chart?ramSpec=${encodeURIComponent(ramSpec)}`);
-    return result.data.series;
+  async chart(category: string) {
+    const result = await apiRequest<{ data: ListingPriceChart }>(`/api/v1/ram-prices/listing-chart?category=${encodeURIComponent(category)}`);
+    return result.data;
   }
 };
 
 export const adminApi = {
-  async marketData(adminToken: string, filters?: { ramSpec?: string; collectedOn?: string }) {
-    type ApiRun = { id: string; scheduled_for: string; source: string; authorization_reference: string; status: RamMarketRun['status']; target_per_spec: number; received_count: number; accepted_count: number; rejected_count: number; failure_reason: string | null; completed_at: string | null };
-    type ApiObservation = { collected_on: string; ram_spec: string; ram_generation: RamMarketObservation['ramGeneration']; capacity_gb: number; clock_mhz: number; price: number; source: string; source_product_id: string; source_product_name: string; source_url: string | null };
-    const query = new URLSearchParams();
-    if (filters?.ramSpec) query.set('ramSpec', filters.ramSpec);
-    if (filters?.collectedOn) query.set('collectedOn', filters.collectedOn);
-    const result = await adminRequest<{ data: { runs: ApiRun[]; observations: ApiObservation[] } }>(`/market-data${query.size ? `?${query}` : ''}`, adminToken);
-    return {
-      runs: result.data.runs.map((run) => ({ id: run.id, scheduledFor: run.scheduled_for, source: run.source, authorizationReference: run.authorization_reference, status: run.status, targetPerSpec: run.target_per_spec, receivedCount: run.received_count, acceptedCount: run.accepted_count, rejectedCount: run.rejected_count, failureReason: run.failure_reason, completedAt: run.completed_at })),
-      observations: result.data.observations.map((item) => ({ collectedOn: item.collected_on, ramSpec: item.ram_spec, ramGeneration: item.ram_generation, capacityGb: item.capacity_gb, clockMhz: item.clock_mhz, price: item.price, source: item.source, sourceProductId: item.source_product_id, sourceProductName: item.source_product_name, sourceUrl: item.source_url }))
-    };
-  },
   async users(adminToken: string) {
     const result = await adminRequest<{ data: Exclude<ApiAdminUser, null | unknown[]>[] }>('/users', adminToken);
     return result.data.map((user) => oneAdminUser(user)).filter((user): user is AdminUser => user !== null);

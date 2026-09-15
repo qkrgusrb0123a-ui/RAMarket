@@ -11,7 +11,6 @@ import { errorHandler, notFound } from './middleware/error-handler.js';
 import { authRouter } from './routes/auth.js';
 import { messagesRouter } from './routes/messages.js';
 import { healthRouter } from './routes/health.js';
-import { internalRouter } from './routes/internal.js';
 import { ramPriceRouter } from './routes/prices.js';
 import { productsRouter } from './routes/products.js';
 import { uploadsRouter } from './routes/uploads.js';
@@ -54,12 +53,10 @@ app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/support', supportRouter);
 app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/api/v1/admin', adminRouter);
-app.use('/internal', internalRouter);
 app.use(express.static(webDirectory, { index: 'index.html' }));
 app.use((request, response, next) => {
   const isApiRoute = request.path === '/health'
     || request.path.startsWith('/api/')
-    || request.path.startsWith('/internal/')
     || request.path === '/admin'
     || request.path.startsWith('/admin/');
   if (!existsSync(webEntryFile) || (request.method !== 'GET' && request.method !== 'HEAD') || isApiRoute || path.extname(request.path)) return next();

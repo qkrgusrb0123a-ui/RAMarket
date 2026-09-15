@@ -10,7 +10,7 @@ import { loadFavoriteProductIds, saveFavoriteProductIds } from './src/favorite-s
 import { loadChatNotifications, saveChatNotifications, type ChatNotification } from './src/notification-storage';
 import { defaultAppSettings, loadAppSettings, saveAppSettings, type AppSettings, type CustomProductAlertCriteria } from './src/app-settings-storage';
 import { notifyCustomProduct, notifyFavoritePriceDrop, notifyIncomingChat, prepareChatNotifications } from './src/chat-notifications';
-import { adminApi, chatApi, favoritesApi, imageUrl, productsApi, ramMarketApi, reportsApi, supportApi, type AdminInquiry, type AdminReport, type AdminUser, type ChatThread, type Product, type ProductInput, type RamMarketObservation, type RamMarketRun, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
+import { adminApi, chatApi, favoritesApi, imageUrl, listingPriceApi, productsApi, reportsApi, supportApi, type AdminInquiry, type AdminReport, type AdminUser, type ChatThread, type ListingPriceChart, type Product, type ProductInput, type SupportMessage, uploadProductImages, uploadProfileImage } from './src/market-api';
 
 const navigationIcons = {
   home: require('./assets/nav-home.png'),
@@ -28,12 +28,6 @@ type ChatTarget = { product: Pick<Product, 'id' | 'title' | 'askingPrice' | 'ima
 type Photo = { uri: string; mimeType?: string | null; fileSize?: number | null; storedPath?: string };
 const green = '#0E766E';
 const appVersion = String(Constants.expoConfig?.extra?.gitCommit ?? 'unknown');
-const memoryChartOptions = [
-  'DDR4 4GB 2666MHz', 'DDR4 8GB 2666MHz', 'DDR4 8GB 3200MHz', 'DDR4 16GB 2666MHz', 'DDR4 16GB 3200MHz', 'DDR4 32GB 3200MHz',
-  'DDR5 8GB 4800MHz', 'DDR5 16GB 4800MHz', 'DDR5 16GB 5600MHz', 'DDR5 32GB 4800MHz', 'DDR5 32GB 5600MHz', 'DDR5 32GB 6000MHz',
-  'DDR5 64GB 5600MHz', 'DDR5 64GB 6000MHz', 'DDR5 128GB 5600MHz', 'DDR5 128GB 6000MHz'
-] as const;
-
 function showMessage(title: string, message: string) {
   if (Platform.OS === 'web') {
     globalThis.alert(`${title}\n\n${message}`);
@@ -332,23 +326,41 @@ function Marketplace({ session, onSignOut, onOpenSupport }: { session: AuthSessi
 }
 
 function MemoryChartHome() {
-  const [selectedMemory, setSelectedMemory] = useState<string>('DDR4 16GB 3200MHz');
-  const [options, setOptions] = useState<string[]>([...memoryChartOptions]);
-  const [series, setSeries] = useState<Awaited<ReturnType<typeof ramMarketApi.chart>>>([]);
+  const [selectedMemory, setSelectedMemory] = useState('');
+  const [options, setOptions] = useState<string[]>([]);
+  const [chart, setChart] = useState<ListingPriceChart | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
-  useEffect(() => { ramMarketApi.specs().then((specs) => { if (specs.length) { setOptions(specs); if (!specs.includes(selectedMemory)) setSelectedMemory(specs[0]); } }).catch((caught) => setError(caught instanceof Error ? caught.message : '시세 규격을 불러오지 못했습니다.')); }, []);
-  useEffect(() => { let active = true; setLoading(true); setError(''); ramMarketApi.chart(selectedMemory).then((data) => { if (active) setSeries(data); }).catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : '시세를 불러오지 못했습니다.'); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [selectedMemory]);
-  const latest = series.at(-1); const previous = series.at(-2);
-  const change = latest && previous && previous.averagePrice > 0 ? (latest.averagePrice - previous.averagePrice) / previous.averagePrice * 100 : undefined;
+  useEffect(() => {
+    let active = true;
+    listingPriceApi.categories().then((categories) => {
+      if (!active) return;
+      setOptions(categories);
+      setSelectedMemory((current) => categories.includes(current) ? current : categories[0] ?? '');
+      if (!categories.length) setLoading(false);
+    }).catch((caught) => {
+      if (active) { setError(caught instanceof Error ? caught.message : '판매글 카테고리를 불러오지 못했습니다.'); setLoading(false); }
+    });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!selectedMemory) return;
+    let active = true;
+    setLoading(true); setError(''); setChart(null);
+    listingPriceApi.chart(selectedMemory).then((data) => { if (active) setChart(data); }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : '등록된 판매글 가격을 불러오지 못했습니다.');
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectedMemory]);
+  const distribution = useMemo(() => sampledPrices(chart?.sortedPrices ?? []), [chart]);
   return <View style={s.flex}>
     <ScrollView contentContainerStyle={s.memoryChartContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
       <ScreenTitle title="메모리 차트" />
       <View style={s.memoryChartBody}>
         <View style={[s.memoryPickerAnchor, pickerOpen && s.memoryPickerAnchorOpen]}>
           <Pressable accessibilityRole="button" accessibilityLabel={`램 종류 선택: ${selectedMemory}`} accessibilityState={{ expanded: pickerOpen }} onPress={() => setPickerOpen((current) => !current)} style={[s.memoryPickerTrigger, pickerOpen && s.memoryPickerTriggerOpen]}>
-            <Text numberOfLines={1} style={s.memoryPickerTriggerText}>{selectedMemory}</Text><Text style={[s.memoryPickerChevron, pickerOpen && s.memoryPickerChevronOpen]}>⌄</Text>
+            <Text numberOfLines={1} style={s.memoryPickerTriggerText}>{selectedMemory || '판매 중인 RAM이 없습니다'}</Text><Text style={[s.memoryPickerChevron, pickerOpen && s.memoryPickerChevronOpen]}>⌄</Text>
           </Pressable>
           {pickerOpen ? <View style={s.memoryPickerOverlay}>
             <ScrollView nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={s.memoryPickerList}>
@@ -359,25 +371,30 @@ function MemoryChartHome() {
           </View> : null}
         </View>
         <View style={s.memoryChartCard}>
-          <View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>주간 평균가 (원)</Text><Text style={s.memoryChartSelection}>{selectedMemory}</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>다나와 리서치</Text></View></View>
-          {loading ? <Loading label="다나와 시세를 불러오는 중이에요" /> : series.length ? <WeeklyPriceGraph prices={series.slice(-7).map((item) => item.averagePrice)} /> : <Empty title="수집된 시세가 없어요" body="승인된 다나와 리서치 데이터 피드를 연결하면 일요일 수집 후 표시됩니다." />}
+          <View style={s.memoryChartCardTop}><View><Text style={s.memoryChartLabel}>현재 등록 판매가 분포 (원)</Text><Text style={s.memoryChartSelection}>{selectedMemory}</Text></View><View style={s.memoryChartLive}><Text style={s.memoryChartLiveDot}>●</Text><Text style={s.memoryChartLiveText}>판매 중</Text></View></View>
+          {loading ? <Loading label="현재 판매글 가격을 불러오는 중이에요" /> : chart?.listingCount ? <PriceDistributionGraph prices={distribution} /> : <Empty title="판매 중인 매물이 없어요" body="해당 규격의 판매글이 등록되면 중앙값과 가격 분포가 표시됩니다." />}
         </View>
         {error ? <Text style={s.adminError}>{error}</Text> : null}
-        {latest ? <View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>금주 평균가</Text><Text style={s.weeklyAveragePrice}>{price(latest.averagePrice)}</Text><Text style={s.memoryChartSelection}>{latest.productCount.toLocaleString('ko-KR')}개 관측값</Text></View>{change !== undefined ? <View style={s.weeklyAverageChange}><Text style={s.weeklyAverageArrow}>{change >= 0 ? '▲' : '▼'}</Text><Text style={s.weeklyAverageChangeText}>{Math.abs(change).toFixed(1)}%</Text></View> : null}</View> : null}
-        <View style={s.recentChartHeader}><Text style={s.recentChartTitle}>최근 변동 가격</Text><Text style={s.recentChartHint}>다나와 리서치</Text></View>
-        <View style={s.recentPriceCard}><View style={[s.recentPriceRow, s.recentPriceHeading]}><Text style={[s.recentPriceCell, s.recentPriceDate, s.recentPriceHeadingText]}>수집일</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>최소가</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>최대가</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>평균가</Text></View>{series.slice(-3).reverse().map((item) => <View key={item.collectedOn} style={s.recentPriceRow}><Text style={[s.recentPriceCell, s.recentPriceDate]}>{item.collectedOn.replaceAll('-', '.')}</Text><Text style={s.recentPriceCell}>{price(item.minPrice)}</Text><Text style={s.recentPriceCell}>{price(item.maxPrice)}</Text><Text style={[s.recentPriceCell, s.recentPriceAverage]}>{price(item.averagePrice)}</Text></View>)}</View>
-        <Text style={s.memoryChartDemoNote}>다나와 리서치의 승인된 개별 관측값을 기준으로 표시합니다.</Text>
+        {chart?.medianPrice !== null && chart?.medianPrice !== undefined ? <View style={s.weeklyAverageCard}><View><Text style={s.weeklyAverageLabel}>현재 중고 RAM 중앙값</Text><Text style={s.weeklyAveragePrice}>{price(chart.medianPrice)}</Text><Text style={s.memoryChartSelection}>판매 중인 매물 {chart.listingCount.toLocaleString('ko-KR')}개 기준</Text></View></View> : null}
+        {chart?.listingCount ? <><View style={s.recentChartHeader}><Text style={s.recentChartTitle}>오름차순 판매가</Text><Text style={s.recentChartHint}>현재 판매글</Text></View>
+          <View style={s.recentPriceCard}><View style={[s.recentPriceRow, s.recentPriceHeading]}><Text style={[s.recentPriceCell, s.recentPriceDate, s.recentPriceHeadingText]}>순번</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>판매가</Text><Text style={[s.recentPriceCell, s.recentPriceHeadingText]}>구분</Text></View>{chart.sortedPrices.map((item, index) => <View key={`${item}-${index}`} style={s.recentPriceRow}><Text style={[s.recentPriceCell, s.recentPriceDate]}>{index + 1}</Text><Text style={s.recentPriceCell}>{price(item)}</Text><Text style={[s.recentPriceCell, index === Math.floor((chart.listingCount - 1) / 2) && s.recentPriceAverage]}>{index === Math.floor((chart.listingCount - 1) / 2) ? '중앙값 구간' : ''}</Text></View>)}</View></> : null}
+        <Text style={s.memoryChartDemoNote}>판매 상태가 ‘판매 중’인 중고 RAM 게시글의 희망가만 사용하며, 가격은 낮은 순으로 정렬됩니다.</Text>
       </View>
     </ScrollView>
   </View>;
 }
 
-function WeeklyPriceGraph({ prices }: { prices: readonly number[] }) {
+function sampledPrices(prices: readonly number[]) {
+  if (prices.length <= 7) return prices;
+  return Array.from({ length: 7 }, (_, index) => prices[Math.round(index * (prices.length - 1) / 6)]);
+}
+
+function PriceDistributionGraph({ prices }: { prices: readonly number[] }) {
   const [plotWidth, setPlotWidth] = useState(0);
   const rawMinimum = Math.min(...prices); const rawMaximum = Math.max(...prices); const padding = Math.max(1_000, Math.round((rawMaximum - rawMinimum || rawMaximum * .1 || 1_000) * .2)); const minimum = Math.max(0, rawMinimum - padding); const maximum = rawMaximum + padding; const plotHeight = 190;
   const pointX = (index: number) => prices.length < 2 ? 0 : (plotWidth - 8) * index / (prices.length - 1);
   const pointY = (value: number) => 8 + (maximum - value) / (maximum - minimum) * (plotHeight - 20);
-  return <View><View style={s.weeklyGraph}><View style={s.weeklyGraphAxis}>{[maximum, (maximum * 2 + minimum) / 3, (maximum + minimum * 2) / 3, minimum].map((value, index) => <Text key={index} style={s.weeklyGraphAxisText}>{Math.round(value / 1000)}K</Text>)}</View><View style={s.weeklyGraphPlot} onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>{[0, 1, 2, 3].map((line) => <View key={line} style={[s.weeklyGraphGridLine, { top: 8 + line * 54 }]} />)}{plotWidth ? <>{prices.slice(0, -1).map((value, index) => { const startX = pointX(index); const startY = pointY(value); const endX = pointX(index + 1); const endY = pointY(prices[index + 1]); const width = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2); const angle = Math.atan2(endY - startY, endX - startX) * 180 / Math.PI; return <View key={`line-${index}`} style={[s.weeklyGraphLine, { left: startX, top: startY, width, transform: [{ rotate: `${angle}deg` }] }]} />; })}{prices.map((value, index) => <View key={`point-${index}`} style={[s.weeklyGraphPoint, index === prices.length - 1 && s.weeklyGraphPointLast, { left: pointX(index) - 5, top: pointY(value) - 5 }]} />)}</> : null}</View></View><View style={s.weeklyGraphDays}>{prices.map((_, index) => <Text key={index} style={s.weeklyGraphDay}>{index === prices.length - 1 ? '최근' : `${prices.length - index - 1}주`}</Text>)}</View></View>;
+  return <View><View style={s.weeklyGraph}><View style={s.weeklyGraphAxis}>{[maximum, (maximum * 2 + minimum) / 3, (maximum + minimum * 2) / 3, minimum].map((value, index) => <Text key={index} style={s.weeklyGraphAxisText}>{Math.round(value / 1000)}K</Text>)}</View><View style={s.weeklyGraphPlot} onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>{[0, 1, 2, 3].map((line) => <View key={line} style={[s.weeklyGraphGridLine, { top: 8 + line * 54 }]} />)}{plotWidth ? <>{prices.slice(0, -1).map((value, index) => { const startX = pointX(index); const startY = pointY(value); const endX = pointX(index + 1); const endY = pointY(prices[index + 1]); const width = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2); const angle = Math.atan2(endY - startY, endX - startX) * 180 / Math.PI; return <View key={`line-${index}`} style={[s.weeklyGraphLine, { left: startX, top: startY, width, transform: [{ rotate: `${angle}deg` }] }]} />; })}{prices.map((value, index) => <View key={`point-${index}`} style={[s.weeklyGraphPoint, index === prices.length - 1 && s.weeklyGraphPointLast, { left: pointX(index) - 5, top: pointY(value) - 5 }]} />)}</> : null}</View></View><View style={s.weeklyGraphDays}>{prices.map((_, index) => <Text key={index} style={s.weeklyGraphDay}>{index === 0 ? '최저' : index === prices.length - 1 ? '최고' : index === Math.floor((prices.length - 1) / 2) ? '중앙' : ''}</Text>)}</View></View>;
 }
 
 function ProductList({ products, favoriteIds, favoriteCount, loading, error, onReload, onSelect, onFavorite, onOpenFavorites, onWrite }: { products: Product[]; favoriteIds: string[]; favoriteCount: number; loading: boolean; error: string; onReload: () => Promise<void>; onSelect: (p: Product) => void; onFavorite: (id: string) => void; onOpenFavorites: () => void; onWrite: () => void }) {
@@ -534,40 +551,23 @@ function TermsScreen({ onBack }: { onBack: () => void }) {
   return <ScreenSafeArea><AppStatusBar /><View style={s.flex}><TopBar title="이용약관" onBack={onBack} /><ScrollView contentContainerStyle={s.terms}><Text style={s.termsTitle}>[거래 주의사항 및 면책 안내]</Text><Text style={s.termsSummary}>본 서비스는 이용자 간 중고거래를 연결하는 플랫폼이며, 모든 거래 책임은 거래 당사자에게 있습니다. 회사는 물품 상태, 거래 금액, 배송, 입금 등 거래 과정에서 발생하는 사기와 분쟁에 대해 책임을 지지 않습니다. 안전한 거래를 위해 물품 상태를 직접 확인하고, 가급적 안전결제 시스템을 이용해 주세요.</Text><Pressable onPress={() => setShowDetails(true)} style={s.termsDetailButton}><Text style={s.termsDetailButtonText}>상세보기</Text></Pressable></ScrollView></View></ScreenSafeArea>;
 }
 
-type AdminView = 'users' | 'product' | 'chat' | 'inquiries' | 'stats';
-const adminViews: { id: AdminView; label: string; icon: string }[] = [{ id: 'users', label: '사용자 관리', icon: '●' }, { id: 'product', label: '신고된 판매글', icon: '▣' }, { id: 'chat', label: '신고된 채팅', icon: '▤' }, { id: 'inquiries', label: '문의', icon: '✦' }, { id: 'stats', label: '시세 수집', icon: '▥' }];
+type AdminView = 'users' | 'product' | 'chat' | 'inquiries';
+const adminViews: { id: AdminView; label: string; icon: string }[] = [{ id: 'users', label: '사용자 관리', icon: '●' }, { id: 'product', label: '신고된 판매글', icon: '▣' }, { id: 'chat', label: '신고된 채팅', icon: '▤' }, { id: 'inquiries', label: '문의', icon: '✦' }];
 const suspensionChoices: { value: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent'; label: string }[] = [{ value: '1d', label: '1일' }, { value: '3d', label: '3일' }, { value: '7d', label: '7일' }, { value: '30d', label: '30일' }, { value: '1y', label: '1년' }, { value: 'permanent', label: '무기한' }];
 
 function AdminDashboard({ session, onSignOut }: { session: AuthSession; onSignOut: () => Promise<void> }) {
   const adminToken = session.adminToken!;
   const { width } = useWindowDimensions(); const desktop = Platform.OS === 'web' && width >= 900;
-  const [view, setView] = useState<AdminView>('users'); const [reports, setReports] = useState<AdminReport[]>([]); const [users, setUsers] = useState<AdminUser[]>([]); const [inquiries, setInquiries] = useState<AdminInquiry[]>([]); const [marketData, setMarketData] = useState<{ runs: RamMarketRun[]; observations: RamMarketObservation[] }>({ runs: [], observations: [] }); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [conversationReport, setConversationReport] = useState<AdminReport | null>(null); const [inquiry, setInquiry] = useState<AdminInquiry | null>(null);
-  async function reload() { setLoading(true); setError(''); try { if (view === 'users') setUsers(await adminApi.users(adminToken)); else if (view === 'inquiries') setInquiries(await adminApi.inquiries(adminToken)); else if (view === 'stats') setMarketData(await adminApi.marketData(adminToken)); else setReports(await adminApi.reports(adminToken, view)); } catch (caught) { setError(caught instanceof Error ? caught.message : '관리자 정보를 불러오지 못했습니다.'); } finally { setLoading(false); } }
+  const [view, setView] = useState<AdminView>('users'); const [reports, setReports] = useState<AdminReport[]>([]); const [users, setUsers] = useState<AdminUser[]>([]); const [inquiries, setInquiries] = useState<AdminInquiry[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [conversationReport, setConversationReport] = useState<AdminReport | null>(null); const [inquiry, setInquiry] = useState<AdminInquiry | null>(null);
+  async function reload() { setLoading(true); setError(''); try { if (view === 'users') setUsers(await adminApi.users(adminToken)); else if (view === 'inquiries') setInquiries(await adminApi.inquiries(adminToken)); else setReports(await adminApi.reports(adminToken, view)); } catch (caught) { setError(caught instanceof Error ? caught.message : '관리자 정보를 불러오지 못했습니다.'); } finally { setLoading(false); } }
   useEffect(() => { void reload(); }, [view]);
   if (conversationReport) return <AdminConversationScreen adminToken={adminToken} report={conversationReport} onBack={() => setConversationReport(null)} />;
   if (inquiry) return <AdminInquiryScreen adminToken={adminToken} inquiry={inquiry} onBack={() => { setInquiry(null); void reload(); }} />;
   const execute = (task: () => Promise<void>) => { task().then(reload).catch((caught) => setError(caught instanceof Error ? caught.message : '관리 작업을 완료하지 못했습니다.')); };
   const menu = <>{adminViews.map((item) => <Pressable key={item.id} onPress={() => setView(item.id)} style={[s.adminMenuItem, desktop && s.adminSidebarMenuItem, view === item.id && s.adminMenuItemOn]}><Text style={[s.adminMenuIcon, desktop && s.adminSidebarMenuText, view === item.id && s.adminMenuTextOn]}>{item.icon}</Text><Text style={[s.adminMenuText, desktop && s.adminSidebarMenuText, view === item.id && s.adminMenuTextOn]}>{item.label}</Text></Pressable>)}</>;
-  const body = loading ? <Loading label="관리자 정보를 불러오는 중이에요" /> : view === 'stats' ? <AdminMarketData runs={marketData.runs} observations={marketData.observations} /> : view === 'users' ? users.length ? users.map((user) => <AdminUserCard key={user.id} user={user} onSuspend={(duration) => execute(() => adminApi.suspendUser(adminToken, user.id, duration))} onCancel={() => execute(() => adminApi.cancelSuspension(adminToken, user.id))} onDelete={() => execute(() => adminApi.deleteUser(adminToken, user.id))} />) : <Empty title="등록된 사용자가 없어요" body="가입한 사용자가 이곳에 표시됩니다." /> : view === 'inquiries' ? inquiries.length ? inquiries.map((item) => <Pressable key={item.id} onPress={() => setInquiry(item)} style={s.adminCard}><Text style={s.adminCardTitle}>{item.contactLabel}</Text><Text style={s.adminMeta}>{item.status === 'closed' ? '처리 완료' : '답변 대기'} · {dateTime(item.updatedAt)}</Text><Text style={s.adminOpen}>문의 보기 ›</Text></Pressable>) : <Empty title="접수된 문의가 없어요" body="사용자 문의가 도착하면 표시됩니다." /> : reports.length ? reports.map((report) => <AdminReportCard key={report.id} report={report} showConversation={view === 'chat'} onConversation={() => setConversationReport(report)} onIgnore={() => execute(() => adminApi.ignoreReport(adminToken, report.id))} onDeleteProduct={() => report.product && execute(() => adminApi.deleteProduct(adminToken, report.product!.id))} onSuspend={(duration) => report.reportedUser && execute(() => adminApi.suspendUser(adminToken, report.reportedUser!.id, duration))} onCancelSuspension={() => report.reportedUser && execute(() => adminApi.cancelSuspension(adminToken, report.reportedUser!.id))} onDeleteUser={() => report.reportedUser && execute(() => adminApi.deleteUser(adminToken, report.reportedUser!.id))} />) : <Empty title="접수된 신고가 없어요" body="새 신고가 도착하면 표시됩니다." />;
+  const body = loading ? <Loading label="관리자 정보를 불러오는 중이에요" /> : view === 'users' ? users.length ? users.map((user) => <AdminUserCard key={user.id} user={user} onSuspend={(duration) => execute(() => adminApi.suspendUser(adminToken, user.id, duration))} onCancel={() => execute(() => adminApi.cancelSuspension(adminToken, user.id))} onDelete={() => execute(() => adminApi.deleteUser(adminToken, user.id))} />) : <Empty title="등록된 사용자가 없어요" body="가입한 사용자가 이곳에 표시됩니다." /> : view === 'inquiries' ? inquiries.length ? inquiries.map((item) => <Pressable key={item.id} onPress={() => setInquiry(item)} style={s.adminCard}><Text style={s.adminCardTitle}>{item.contactLabel}</Text><Text style={s.adminMeta}>{item.status === 'closed' ? '처리 완료' : '답변 대기'} · {dateTime(item.updatedAt)}</Text><Text style={s.adminOpen}>문의 보기 ›</Text></Pressable>) : <Empty title="접수된 문의가 없어요" body="사용자 문의가 도착하면 표시됩니다." /> : reports.length ? reports.map((report) => <AdminReportCard key={report.id} report={report} showConversation={view === 'chat'} onConversation={() => setConversationReport(report)} onIgnore={() => execute(() => adminApi.ignoreReport(adminToken, report.id))} onDeleteProduct={() => report.product && execute(() => adminApi.deleteProduct(adminToken, report.product!.id))} onSuspend={(duration) => report.reportedUser && execute(() => adminApi.suspendUser(adminToken, report.reportedUser!.id, duration))} onCancelSuspension={() => report.reportedUser && execute(() => adminApi.cancelSuspension(adminToken, report.reportedUser!.id))} onDeleteUser={() => report.reportedUser && execute(() => adminApi.deleteUser(adminToken, report.reportedUser!.id))} />) : <Empty title="접수된 신고가 없어요" body="새 신고가 도착하면 표시됩니다." />;
   return <ScreenSafeArea><AppStatusBar /><View style={[s.adminShell, desktop && s.adminShellDesktop]}>{desktop ? <View style={s.adminSidebar}><Brand compact /><Text style={s.adminSidebarLabel}>관리 메뉴</Text>{menu}<Pressable onPress={() => { void onSignOut(); }} style={[s.adminSidebarSignOut, s.adminSidebarSignOutCentered]}><Text style={s.adminSidebarSignOutText}>로그아웃</Text></Pressable></View> : null}<View style={s.adminMain}><View style={s.adminHeader}><View><Text style={s.adminTitle}>{adminViews.find((item) => item.id === view)?.label}</Text><Text style={s.adminSub}>{session.user.loginId} 계정으로 관리 중</Text></View>{!desktop ? <Pressable onPress={() => { void onSignOut(); }} style={s.adminSignOut}><Text style={s.adminSignOutText}>로그아웃</Text></Pressable> : null}</View>{!desktop ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.adminMobileMenu}>{menu}</ScrollView> : null}{error ? <Text style={s.adminError}>{error}</Text> : null}<ScrollView contentContainerStyle={s.adminList} refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} colors={[green]} tintColor={green} />}>{body}</ScrollView></View></View></ScreenSafeArea>;
 }
-
-function AdminMarketData({ runs, observations }: { runs: RamMarketRun[]; observations: RamMarketObservation[] }) {
-  const specs = [...new Set(observations.map((item) => item.ramSpec))];
-  const [selectedSpec, setSelectedSpec] = useState<string | undefined>();
-  const [chart, setChart] = useState<Awaited<ReturnType<typeof ramMarketApi.chart>>>([]);
-  const activeSpec = selectedSpec ?? specs[0];
-  useEffect(() => { if (!activeSpec) return; ramMarketApi.chart(activeSpec).then(setChart).catch(() => setChart([])); }, [activeSpec]);
-  return <View style={{ gap: 12 }}>
-    <View style={s.adminCard}><Text style={s.adminCardTitle}>다나와 리서치 시세 차트</Text><Text style={s.adminMeta}>승인된 다나와 리서치 데이터만 저장·표시합니다.</Text>{specs.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.adminDurationRow}>{specs.map((spec) => <Pressable key={spec} onPress={() => setSelectedSpec(spec)} style={[s.adminDuration, activeSpec === spec && s.adminDurationOn]}><Text style={[s.adminDurationText, activeSpec === spec && s.adminDurationTextOn]}>{spec}</Text></Pressable>)}</ScrollView> : null}{chart.length ? <WeeklyPriceGraph prices={chart.slice(-7).map((point) => point.averagePrice)} /> : <Text style={s.adminMeta}>표시할 다나와 시세가 아직 없습니다.</Text>}</View>
-    <Text style={{ marginTop: 10, color: '#16201F', fontSize: 18, fontWeight: '900' }}>수집 실행 이력</Text>
-    {runs.length ? runs.map((run) => <View key={run.id} style={s.adminCard}><Text style={s.adminCardTitle}>{marketSourceLabel(run.source)} · {run.scheduledFor}</Text><Text style={s.adminMeta}>상태: {run.status} · 승인 {run.acceptedCount.toLocaleString('ko-KR')} / 수신 {run.receivedCount.toLocaleString('ko-KR')} / 목표 규격당 {run.targetPerSpec.toLocaleString('ko-KR')}</Text><Text style={s.adminMeta}>승인 근거: {run.authorizationReference}</Text>{run.failureReason ? <Text style={s.adminError}>{run.failureReason}</Text> : null}</View>) : <Empty title="수집 실행 이력이 없어요" body="두 공급자의 승인된 피드를 설정하면 일요일 00:00 KST에 실행됩니다." />}
-    <Text style={{ marginTop: 10, color: '#16201F', fontSize: 18, fontWeight: '900' }}>최근 원본 관측값</Text>
-    {observations.slice(0, 30).map((item) => <View key={`${item.source}:${item.sourceProductId}:${item.collectedOn}`} style={s.adminCard}><Text numberOfLines={1} style={s.adminCardTitle}>{item.sourceProductName}</Text><Text style={s.adminMeta}>{item.ramSpec} · {marketSourceLabel(item.source)} · {item.collectedOn}</Text><Text style={s.adminOpen}>{price(item.price)}</Text></View>)}
-  </View>;
-}
-
-function marketSourceLabel(source: string) { return source.startsWith('danawa') ? '다나와 리서치' : source; }
 
 function AdminReportCard({ report, showConversation, onConversation, onIgnore, onDeleteProduct, onSuspend, onCancelSuspension, onDeleteUser }: { report: AdminReport; showConversation: boolean; onConversation: () => void; onIgnore: () => void; onDeleteProduct: () => void; onSuspend: (duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent') => void; onCancelSuspension: () => void; onDeleteUser: () => void }) { const target = report.reportedUser; return <View style={s.adminCard}><Text style={s.adminCardTitle}>{report.product?.title ?? report.productTitle ?? '삭제된 판매글'}</Text><Text style={s.adminMeta}>신고 대상: {target?.nickname ?? '삭제된 사용자'} · {dateTime(report.createdAt)}</Text><Text style={s.adminMeta}>신고자: {report.reporter?.nickname ?? '삭제된 사용자'}</Text><View style={s.adminActions}>{showConversation && <AdminAction label="채팅 확인" onPress={onConversation} />}{report.product && <AdminAction label="게시글 삭제" danger onPress={() => confirmAction('게시글 삭제', '게시글과 연결된 채팅을 삭제할까요?', onDeleteProduct)} />}{target && <AdminUserActions user={target} onSuspend={onSuspend} onCancel={onCancelSuspension} onDelete={onDeleteUser} />}<AdminAction label="신고 무시" onPress={() => confirmAction('신고 무시', '신고 요청을 목록에서 제거할까요?', onIgnore)} /></View></View>; }
 function AdminUserCard({ user, onSuspend, onCancel, onDelete }: { user: AdminUser; onSuspend: (duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent') => void; onCancel: () => void; onDelete: () => void }) { return <View style={s.adminCard}><View style={s.adminUserHeading}><View><Text style={s.adminCardTitle}>{user.nickname}</Text><Text style={s.adminMeta}>{user.loginId}</Text></View><Text style={[s.adminUserStatus, user.status === 'suspended' && s.adminUserStatusSuspended]}>{user.status === 'suspended' ? '활동 정지' : '정상'}</Text></View>{user.status === 'suspended' ? <Text style={s.adminMeta}>{user.suspendedUntil ? `해제 예정 ${dateTime(user.suspendedUntil)}` : '무기한 활동 정지'}</Text> : null}<View style={s.adminActions}><AdminUserActions user={user} onSuspend={onSuspend} onCancel={onCancel} onDelete={onDelete} /></View></View>; }

@@ -24,10 +24,6 @@ services:
         sync: false
       - key: ADMIN_SESSION_SECRET
         generateValue: true
-      - key: CRON_SECRET
-        sync: false
-      - key: PRICE_FEED_URL
-        sync: false
       # Expo embeds these public values into the web bundle at build time.
       # Use this API service's public HTTPS URL for EXPO_PUBLIC_API_BASE_URL.
       - key: EXPO_PUBLIC_API_BASE_URL
@@ -35,27 +31,4 @@ services:
       - key: EXPO_PUBLIC_SUPABASE_URL
         sync: false
       - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
-  - type: cron
-    name: ramarket-weekly-price-collector
-    runtime: node
-    rootDir: market_brief_render
-    # Saturday 15:00 UTC is Sunday 00:00 in Asia/Seoul (KST, UTC+9).
-    schedule: "0 15 * * 6"
-    buildCommand: corepack enable && pnpm install --frozen-lockfile
-    startCommand: pnpm run job:weekly-ram-market
-    envVars:
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: DANAWA_RESEARCH_PROVIDER_URL
-        sync: false
-      - key: DANAWA_RESEARCH_PROVIDER_TOKEN
-        sync: false
-      - key: DANAWA_RESEARCH_DATA_LICENSE_APPROVED
-        sync: false
-      - key: DANAWA_RESEARCH_DATA_LICENSE_REFERENCE
         sync: false
