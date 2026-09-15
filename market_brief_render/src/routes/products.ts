@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizeRamSpec } from '../lib/ram-spec.js';
 import { adminSupabase, supabaseForRequest } from '../lib/supabase.js';
 
 const productInput = z.object({
@@ -92,7 +93,7 @@ productsRouter.post('/', requireAuth, async (request, response, next) => {
       seller_id: request.userId,
       title: input.title,
       description: input.description,
-      category: input.category,
+      category: normalizeRamSpec(input.category),
       product_type: input.productType,
       condition: input.condition,
       asking_price: input.askingPrice,
@@ -126,7 +127,7 @@ productsRouter.patch('/:productId', requireAuth, async (request, response, next)
       .update({
         title: input.title,
         description: input.description,
-        category: input.category,
+        category: normalizeRamSpec(input.category),
         product_type: input.productType,
         condition: input.condition,
         asking_price: input.askingPrice,

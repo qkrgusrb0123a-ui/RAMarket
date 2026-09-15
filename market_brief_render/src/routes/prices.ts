@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseForRequest } from '../lib/supabase.js';
+import { normalizeRamSpec } from '../lib/ram-spec.js';
 
 export const ramPriceRouter = Router();
 
@@ -17,7 +18,7 @@ ramPriceRouter.get('/listing-categories', async (request, response, next) => {
       .eq('status', 'active');
     if (error) throw error;
     const categories = [...new Set((data ?? [])
-      .map((item) => item.category?.trim())
+      .map((item) => normalizeRamSpec(item.category ?? ''))
       .filter((category): category is string => Boolean(category)))]
       .sort((left, right) => left.localeCompare(right, 'ko-KR'));
     return response.set('Cache-Control', 'no-store').json({ data: categories });
@@ -31,15 +32,18 @@ ramPriceRouter.get('/listing-categories', async (request, response, next) => {
  */
 ramPriceRouter.get('/listing-chart', async (request, response, next) => {
   try {
-    const { category } = z.object({ category: z.string().trim().min(1).max(150) }).parse(request.query);
+    const { category: requestedCategory } = z.object({ category: z.string().trim().min(1).max(150) }).parse(request.query);
+    const category = normalizeRamSpec(requestedCategory);
     const { data, error } = await supabaseForRequest(request)
       .from('products')
-      .select('asking_price')
-      .eq('status', 'active')
-      .eq('category', category)
-      .order('asking_price', { ascending: true });
+      .select('category,asking_price')
+      .eq('status', 'active');
     if (error) throw error;
-    const sortedPrices = (data ?? []).map((item) => Number(item.asking_price)).filter(Number.isFinite);
+    const sortedPrices = (data ?? [])
+      .filter((item) => normalizeRamSpec(item.category ?? '') === category)
+      .map((item) => Number(item.asking_price))
+      .filter(Number.isFinite)
+      .sort((left, right) => left - right);
     const middle = Math.floor(sortedPrices.length / 2);
     const medianPrice = sortedPrices.length === 0 ? null : sortedPrices.length % 2
       ? sortedPrices[middle]
