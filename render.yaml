@@ -51,14 +51,6 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: NAVER_SHOPPING_PROVIDER_URL
-        sync: false
-      - key: NAVER_SHOPPING_PROVIDER_TOKEN
-        sync: false
-      - key: NAVER_SHOPPING_DATA_LICENSE_APPROVED
-        sync: false
-      - key: NAVER_SHOPPING_DATA_LICENSE_REFERENCE
-        sync: false
       - key: DANAWA_RESEARCH_PROVIDER_URL
         sync: false
       - key: DANAWA_RESEARCH_PROVIDER_TOKEN

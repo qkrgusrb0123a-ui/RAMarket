@@ -10,6 +10,7 @@ const reportFilter = z.object({ targetType: z.enum(['product', 'chat']).default(
 const suspensionInput = z.object({ duration: z.enum(suspensionDurations) });
 
 export const adminRouter = Router();
+const danawaResearchSource = 'danawa-research-licensed-feed';
 
 adminRouter.use(requireAdmin);
 
@@ -28,8 +29,8 @@ adminRouter.get('/users', async (_request, response, next) => {
 adminRouter.get('/market-data', async (request, response, next) => {
   try {
     const { ramSpec, collectedOn } = z.object({ ramSpec: z.string().trim().min(1).max(100).optional(), collectedOn: z.string().date().optional() }).parse(request.query);
-    const runsQuery = adminSupabase.from('ram_market_collection_runs').select('id,scheduled_for,source,authorization_reference,status,target_per_spec,received_count,accepted_count,rejected_count,failure_reason,started_at,completed_at').order('scheduled_for', { ascending: false }).limit(30);
-    let observationsQuery = adminSupabase.from('ram_market_observations').select('collected_on,ram_spec,ram_generation,capacity_gb,clock_mhz,price,source,source_product_id,source_product_name,source_url').order('collected_on', { ascending: false }).limit(100);
+    const runsQuery = adminSupabase.from('ram_market_collection_runs').select('id,scheduled_for,source,authorization_reference,status,target_per_spec,received_count,accepted_count,rejected_count,failure_reason,started_at,completed_at').eq('source', danawaResearchSource).order('scheduled_for', { ascending: false }).limit(30);
+    let observationsQuery = adminSupabase.from('ram_market_observations').select('collected_on,ram_spec,ram_generation,capacity_gb,clock_mhz,price,source,source_product_id,source_product_name,source_url').eq('source', danawaResearchSource).order('collected_on', { ascending: false }).limit(100);
     if (ramSpec) observationsQuery = observationsQuery.eq('ram_spec', ramSpec);
     if (collectedOn) observationsQuery = observationsQuery.eq('collected_on', collectedOn);
     const [runs, observations] = await Promise.all([runsQuery, observationsQuery]);

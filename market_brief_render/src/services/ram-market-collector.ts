@@ -24,12 +24,10 @@ const licensedFeedSchema = z.object({
 
 export type LicensedRamMarketFeed = z.infer<typeof licensedFeedSchema>;
 export type RamMarketObservation = z.infer<typeof observationSchema> & { ramSpec: string };
-export type LicensedProvider = 'naver-shopping' | 'danawa-research';
 
 type ProviderConfig = { source: string; url?: string; token?: string; approved: boolean; licenseReference?: string };
 
-function providerConfig(provider: LicensedProvider): ProviderConfig {
-  if (provider === 'naver-shopping') return { source: 'naver-shopping-licensed-feed', url: env.NAVER_SHOPPING_PROVIDER_URL, token: env.NAVER_SHOPPING_PROVIDER_TOKEN, approved: env.NAVER_SHOPPING_DATA_LICENSE_APPROVED, licenseReference: env.NAVER_SHOPPING_DATA_LICENSE_REFERENCE };
+function danawaResearchConfig(): ProviderConfig {
   return { source: 'danawa-research-licensed-feed', url: env.DANAWA_RESEARCH_PROVIDER_URL, token: env.DANAWA_RESEARCH_PROVIDER_TOKEN, approved: env.DANAWA_RESEARCH_DATA_LICENSE_APPROVED, licenseReference: env.DANAWA_RESEARCH_DATA_LICENSE_REFERENCE };
 }
 
@@ -64,15 +62,15 @@ export function normalizeLicensedFeed(input: unknown, source: string): { referen
   return { reference: feed.authorization.reference, observations, rejectedCount };
 }
 
-function assertLicensedProvider(provider: LicensedProvider, config: ProviderConfig) {
-  if (!config.url) throw new Error(`${provider} collection is disabled because its licensed provider URL is not configured.`);
+function assertLicensedProvider(config: ProviderConfig) {
+  if (!config.url) throw new Error('Danawa Research collection is disabled because its licensed provider URL is not configured.');
   if (!config.approved || !config.licenseReference) {
-    throw new Error(`${provider} collection is disabled until an approved data license and its reference are configured.`);
+    throw new Error('Danawa Research collection is disabled until an approved data license and its reference are configured.');
   }
 }
 
-async function fetchLicensedFeed(provider: LicensedProvider, config: ProviderConfig) {
-  assertLicensedProvider(provider, config);
+async function fetchLicensedFeed(config: ProviderConfig) {
+  assertLicensedProvider(config);
   const response = await fetch(config.url!, {
     headers: {
       accept: 'application/json',
@@ -84,20 +82,20 @@ async function fetchLicensedFeed(provider: LicensedProvider, config: ProviderCon
   return response.json();
 }
 
-export async function collectLicensedRamMarketData(provider: LicensedProvider) {
-  const config = providerConfig(provider);
+export async function collectDanawaResearchRamMarketData() {
+  const config = danawaResearchConfig();
   const source = config.source;
   const collectedOn = seoulDate();
   let runId: string | undefined;
   try {
-    assertLicensedProvider(provider, config);
+    assertLicensedProvider(config);
     const { data: run, error: createError } = await adminSupabase.from('ram_market_collection_runs').upsert({
       scheduled_for: collectedOn, source, authorization_reference: config.licenseReference!, status: 'running', target_per_spec: OBSERVATION_LIMIT_PER_SPEC,
       received_count: 0, accepted_count: 0, rejected_count: 0, failure_reason: null, started_at: new Date().toISOString(), completed_at: null
     }, { onConflict: 'scheduled_for,source' }).select('id').single();
     if (createError) throw createError;
     runId = run.id;
-    const rawFeed = await fetchLicensedFeed(provider, config);
+    const rawFeed = await fetchLicensedFeed(config);
     const parsed = normalizeLicensedFeed(rawFeed, source);
     if (parsed.reference !== config.licenseReference) throw new Error('Licensed feed authorization reference does not match the configured approval.');
     const rows = parsed.observations.map((item) => ({ collection_run_id: runId!, collected_on: collectedOn, ram_spec: item.ramSpec, ram_generation: item.ramGeneration, capacity_gb: item.capacityGb, clock_mhz: item.clockMhz, price: item.price, source, source_product_id: item.sourceProductId, source_product_name: item.sourceProductName, source_url: item.sourceUrl ?? null }));
@@ -117,13 +115,4 @@ export async function collectLicensedRamMarketData(provider: LicensedProvider) {
     if (runId) await adminSupabase.from('ram_market_collection_runs').update({ status: 'failed', failure_reason: error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error', completed_at: new Date().toISOString() }).eq('id', runId);
     throw error;
   }
-}
-
-/** Collect providers independently so a temporary failure in one cannot erase or mix the other source. */
-export async function collectAllLicensedRamMarketData() {
-  const results = await Promise.allSettled((['naver-shopping', 'danawa-research'] as const).map((provider) => collectLicensedRamMarketData(provider)));
-  const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
-  for (const failure of failures) console.error('Licensed RAM market provider failed:', failure.reason);
-  if (failures.length === results.length) throw new AggregateError(failures.map((failure) => failure.reason), 'Every licensed RAM market provider failed.');
-  return results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof collectLicensedRamMarketData>>> => result.status === 'fulfilled').map((result) => result.value);
 }
