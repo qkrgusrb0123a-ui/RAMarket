@@ -1,50 +1,62 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseForRequest } from '../lib/supabase.js';
-import { dateDaysBeforeKorea, koreaDate, ramMarketSpecs, type RamGeneration } from '../lib/ram-market.js';
+import { medianPrice, type RamGeneration } from '../lib/ram-market.js';
 
 export const ramPriceRouter = Router();
 
 const chartQuery = z.object({
   generation: z.enum(['DDR4', 'DDR5']),
+  clockMhz: z.coerce.number().int().positive().max(20_000),
   capacityGb: z.coerce.number().int().positive().max(128),
-  days: z.coerce.number().int().min(7).max(84).default(7)
 });
 
-ramPriceRouter.get('/options', (_request, response) => {
-  return response.set('Cache-Control', 'public, max-age=3600').json({ data: ramMarketSpecs });
+function listingSpecFromCategory(category: string) {
+  const match = /^(DDR[45]) · (\d{3,5})MHz · (\d+)GB$/.exec(category);
+  if (!match) return null;
+  return { generation: match[1] as RamGeneration, clockMhz: Number(match[2]), capacityGb: Number(match[3]) };
+}
+
+ramPriceRouter.get('/options', async (request, response, next) => {
+  try {
+    const { data, error } = await supabaseForRequest(request)
+      .from('products')
+      .select('category')
+      .eq('status', 'active');
+    if (error) throw error;
+    const options = new Map<string, { generation: RamGeneration; clockMhz: number; capacityGb: number; sampleCount: number }>();
+    for (const product of data ?? []) {
+      const spec = listingSpecFromCategory(product.category);
+      if (!spec) continue;
+      const key = `${spec.generation}:${spec.clockMhz}:${spec.capacityGb}`;
+      const current = options.get(key);
+      options.set(key, { ...spec, sampleCount: (current?.sampleCount ?? 0) + 1 });
+    }
+    return response.set('Cache-Control', 'no-store').json({ data: [...options.values()].sort((left, right) =>
+      right.sampleCount - left.sampleCount || right.clockMhz - left.clockMhz || right.capacityGb - left.capacityGb
+    ) });
+  } catch (error) { return next(error); }
 });
 
-/** Daily Naver Shopping values. Raw product results are discarded after aggregation. */
+/** Active marketplace listings, grouped by their normalized RAM specification. */
 ramPriceRouter.get('/chart', async (request, response, next) => {
   try {
-    const { generation, capacityGb, days } = chartQuery.parse(request.query);
-    const available = ramMarketSpecs.find((item) => item.generation === generation)?.capacitiesGb.some((capacity) => capacity === capacityGb);
-    if (!available) return response.status(400).json({ error: '지원하지 않는 RAM 규격 또는 용량입니다.' });
-    const today = koreaDate();
-    const from = dateDaysBeforeKorea(days - 1);
+    const { generation, clockMhz, capacityGb } = chartQuery.parse(request.query);
+    const category = `${generation} · ${clockMhz}MHz · ${capacityGb}GB`;
     const { data, error } = await supabaseForRequest(request)
-      .from('ram_market_daily_prices')
-      .select('collected_on,sample_count,min_price,max_price,median_price')
-      .eq('ram_generation', generation satisfies RamGeneration)
-      .eq('capacity_gb', capacityGb)
-      .gte('collected_on', from)
-      .lte('collected_on', today)
-      .order('collected_on', { ascending: true });
+      .from('products')
+      .select('asking_price')
+      .eq('category', category)
+      .eq('status', 'active');
     if (error) throw error;
-    const points = (data ?? []).map((row) => ({
-      date: row.collected_on,
-      sampleCount: Number(row.sample_count),
-      minPrice: Number(row.min_price),
-      maxPrice: Number(row.max_price),
-      medianPrice: Number(row.median_price)
-    }));
-    const todayPoint = points.find((point) => point.date === today) ?? null;
+    const prices = (data ?? []).map((product) => Number(product.asking_price)).sort((left, right) => left - right);
     return response.set('Cache-Control', 'no-store').json({ data: {
-      generation, capacityGb, days, from, to: today,
-      todayMedianPrice: todayPoint?.medianPrice ?? null,
-      todaySampleCount: todayPoint?.sampleCount ?? 0,
-      points
+      generation, clockMhz, capacityGb,
+      sampleCount: prices.length,
+      minPrice: prices[0] ?? null,
+      maxPrice: prices.at(-1) ?? null,
+      medianPrice: medianPrice(prices),
+      prices
     } });
   } catch (error) { return next(error); }
 });
