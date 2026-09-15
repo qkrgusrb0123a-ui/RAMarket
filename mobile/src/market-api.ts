@@ -71,7 +71,7 @@ export type AdminReport = { id: string; targetType: ReportTargetType; productId:
 export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
 export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
 export type ListingMarketOption = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number };
-export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; prices: number[] };
+export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; averagePrice: number | null; prices: number[] };
 
 export type UploadableImage = { uri: string; mimeType?: string | null; fileSize?: number | null };
 
@@ -207,6 +207,10 @@ export const productsApi = {
   async list(session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products?limit=50', session);
     return result.data.map(productFromApi);
+  },
+  async get(productId: string, session: AuthSession) {
+    const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session);
+    return productFromApi(result.data);
   },
   async create(input: ProductInput, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>('/api/v1/products', session, { method: 'POST', body: JSON.stringify(input) });

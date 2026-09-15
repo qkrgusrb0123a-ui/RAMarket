@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseForRequest } from '../lib/supabase.js';
-import { medianPrice, type RamGeneration } from '../lib/ram-market.js';
+import { averagePrice, medianPrice, ramMarketSpecs, type RamGeneration } from '../lib/ram-market.js';
 import { parseRamSpec } from '../lib/ram-spec.js';
 
 export const ramPriceRouter = Router();
@@ -19,6 +19,9 @@ ramPriceRouter.get('/options', async (request, response, next) => {
       .eq('status', 'active');
     if (error) throw error;
     const options = new Map<string, { generation: RamGeneration; capacityGb: number; sampleCount: number }>();
+    for (const { generation, capacitiesGb } of ramMarketSpecs) {
+      for (const capacityGb of capacitiesGb) options.set(`${generation}:${capacityGb}`, { generation, capacityGb, sampleCount: 0 });
+    }
     for (const product of data ?? []) {
       const spec = parseRamSpec(product.category);
       if (!spec) continue;
@@ -54,6 +57,7 @@ ramPriceRouter.get('/chart', async (request, response, next) => {
       minPrice: prices[0] ?? null,
       maxPrice: prices.at(-1) ?? null,
       medianPrice: medianPrice(prices),
+      averagePrice: averagePrice(prices),
       prices
     } });
   } catch (error) { return next(error); }

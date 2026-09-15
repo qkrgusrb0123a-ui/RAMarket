@@ -1,6 +1,6 @@
 export const ramMarketSpecs = [
   { generation: 'DDR4', capacitiesGb: [4, 8, 16, 32, 64] },
-  { generation: 'DDR5', capacitiesGb: [8, 16, 32, 48, 64] }
+  { generation: 'DDR5', capacitiesGb: [8, 16, 32, 48, 64, 128] }
 ] as const;
 
 export type RamGeneration = (typeof ramMarketSpecs)[number]['generation'];
@@ -10,6 +10,11 @@ export function medianPrice(prices: readonly number[]) {
   const sorted = [...prices].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+export function averagePrice(prices: readonly number[]) {
+  if (!prices.length) return null;
+  return Math.round(prices.reduce((total, price) => total + price, 0) / prices.length);
 }
 
 /** YYYY-MM-DD in Korea Standard Time, independent of the server's locale. */

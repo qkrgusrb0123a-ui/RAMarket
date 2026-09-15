@@ -46,3 +46,11 @@ export async function notifyCustomProduct(title: string, category: string) {
     trigger: null
   });
 }
+
+export async function notifyFavoritePriceDrop(title: string) {
+  if (!permissionGranted && !(await prepareChatNotifications())) return;
+  await Notifications.scheduleNotificationAsync({
+    content: { title: '찜한 상품의 가격이 내려갔어요', body: title, sound: 'default', color: '#0E766E' },
+    trigger: null
+  });
+}

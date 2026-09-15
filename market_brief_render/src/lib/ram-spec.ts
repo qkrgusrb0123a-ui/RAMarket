@@ -10,12 +10,13 @@ export function normalizeRamSpec(category: string): string {
   const capacity = value.match(/\b(\d+)\s*GB\b/i)?.[1];
 
   if (!generation || !clock || !capacity) return value;
-  return `DDR${generation} · ${clock}MHz · ${capacity}GB`;
+  const maker = value.split(' · ').slice(3).map((part) => part.trim()).filter(Boolean).join(' · ');
+  return [`DDR${generation} · ${clock}MHz · ${capacity}GB`, maker].filter(Boolean).join(' · ');
 }
 
 /** Reads the normalized RAM category used by marketplace listings. */
 export function parseRamSpec(category: string) {
-  const match = /^(DDR[45]) · (\d{3,5})MHz · (\d+)GB$/.exec(category.trim());
+  const match = /^(DDR[45]) · (\d{3,5})MHz · (\d+)GB(?: · .+)?$/.exec(category.trim());
   if (!match) return null;
   return { generation: match[1] as 'DDR4' | 'DDR5', clockMhz: Number(match[2]), capacityGb: Number(match[3]) };
 }
