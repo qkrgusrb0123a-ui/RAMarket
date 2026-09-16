@@ -17,6 +17,7 @@ import { uploadsRouter } from './routes/uploads.js';
 import { reportsRouter } from './routes/reports.js';
 import { adminRouter } from './routes/admin.js';
 import { supportRouter } from './routes/support.js';
+import { notificationsRouter } from './routes/notifications.js';
 
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 const webDirectory = path.resolve(sourceDirectory, '../public/web');
@@ -51,6 +52,7 @@ app.use('/api/v1/uploads', uploadsRouter);
 app.use('/api/v1/messages', messagesRouter);
 app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/support', supportRouter);
+app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/ram-prices', ramPriceRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use(express.static(webDirectory, { index: 'index.html' }));

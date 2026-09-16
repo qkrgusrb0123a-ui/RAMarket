@@ -32,15 +32,14 @@ adminRouter.get('/dashboard', async (_request, response, next) => {
       adminSupabase.from('reports').select('*', { count: 'exact', head: true }).in('status', ['received', 'reviewing']),
       adminSupabase.from('support_inquiries').select('*', { count: 'exact', head: true }).eq('status', 'open'),
       adminSupabase.from('users').select('created_at').gte('created_at', since),
-      adminSupabase.from('products').select('created_at,status,category').gte('created_at', since),
+      adminSupabase.from('products').select('created_at,status').gte('created_at', since),
       adminSupabase.from('user_sanctions').select('id,action,reason,starts_at,ends_at,user:users!user_sanctions_user_id_fkey(login_id,nickname)').order('created_at', { ascending: false }).limit(5),
       adminSupabase.from('reports').select('id,status,product_title,created_at').order('created_at', { ascending: false }).limit(5)
     ]);
     for (const result of [reports, inquiries, users, products, sanctions, recentReports]) if (result.error) throw result.error;
     const days = Array.from({ length: 7 }, (_, index) => { const date = new Date(Date.now() - (6 - index) * 86_400_000); return date.toISOString().slice(0, 10); });
     const daily = days.map((day) => ({ day, signups: (users.data ?? []).filter((item) => item.created_at.slice(0, 10) === day).length, listings: (products.data ?? []).filter((item) => item.created_at.slice(0, 10) === day).length, sold: (products.data ?? []).filter((item) => item.created_at.slice(0, 10) === day && item.status === 'sold').length }));
-    const distribution = Object.entries((products.data ?? []).reduce<Record<string, number>>((acc, item) => { acc[item.category] = (acc[item.category] ?? 0) + 1; return acc; }, {})).map(([category, count]) => ({ category, count }));
-    return response.json({ data: { pendingReports: reports.count ?? 0, pendingInquiries: inquiries.count ?? 0, daily, distribution, recentSanctions: sanctions.data ?? [], recentReports: recentReports.data ?? [] } });
+    return response.json({ data: { pendingReports: reports.count ?? 0, pendingInquiries: inquiries.count ?? 0, daily, recentSanctions: sanctions.data ?? [], recentReports: recentReports.data ?? [] } });
   } catch (error) { return next(error); }
 });
 
@@ -186,6 +185,13 @@ adminRouter.get('/reports/:reportId/conversation', async (request, response, nex
 adminRouter.get('/products', async (request, response, next) => {
   try {
     const input = listingQuery.parse(request.query);
+    const [all, active, reserved, sold] = await Promise.all([
+      adminSupabase.from('products').select('*', { count: 'exact', head: true }),
+      adminSupabase.from('products').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      adminSupabase.from('products').select('*', { count: 'exact', head: true }).eq('status', 'reserved'),
+      adminSupabase.from('products').select('*', { count: 'exact', head: true }).eq('status', 'sold')
+    ]);
+    for (const result of [all, active, reserved, sold]) if (result.error) throw result.error;
     let statement = adminSupabase.from('products').select('id,title,description,category,asking_price,status,created_at,blinded_at,blinded_reason,anomaly_flags,seller:users!products_seller_id_fkey(id,login_id,nickname)').order('created_at', { ascending: false }).limit(100);
     if (input.status) statement = statement.eq('status', input.status);
     if (input.minPrice !== undefined) statement = statement.gte('asking_price', input.minPrice);
@@ -196,7 +202,23 @@ adminRouter.get('/products', async (request, response, next) => {
     const { data, error } = await statement;
     if (error) throw error;
     const items = (data ?? []).filter((item) => !input.seller || JSON.stringify(item.seller).toLowerCase().includes(input.seller!.toLowerCase()));
-    return response.json({ data: items });
+    return response.json({ data: items, stats: { total: all.count ?? 0, active: active.count ?? 0, reserved: reserved.count ?? 0, sold: sold.count ?? 0 } });
+  } catch (error) { return next(error); }
+});
+
+adminRouter.delete('/products/:productId/permanent', async (request, response, next) => {
+  try {
+    if (!isSuperAdmin(request, response)) return;
+    const productId = request.params.productId;
+    const { data: product, error: lookupError } = await adminSupabase.from('products').select('id,title').eq('id', productId).maybeSingle();
+    if (lookupError) throw lookupError;
+    if (!product) return response.status(404).json({ error: '삭제할 판매글을 찾을 수 없습니다.' });
+    const { error: messageError } = await adminSupabase.from('messages').delete().eq('product_id', productId);
+    if (messageError) throw messageError;
+    const { error } = await adminSupabase.from('products').delete().eq('id', productId);
+    if (error) throw error;
+    await audit(request, 'product.deleted', 'product', productId, '최고관리자 영구 삭제', { title: product.title });
+    return response.status(204).send();
   } catch (error) { return next(error); }
 });
 
@@ -205,7 +227,11 @@ adminRouter.patch('/products/:productId/blind', async (request, response, next) 
     if (!canWrite(request, response)) return;
     const { blind, reason } = z.object({ blind: z.boolean(), reason: z.string().trim().min(2).max(500).optional() }).parse(request.body);
     if (blind && !reason) return response.status(400).json({ error: '블라인드 사유를 입력해 주세요.' });
-    const { data, error } = await adminSupabase.from('products').update(blind ? { status: 'hidden', blinded_at: new Date().toISOString(), blinded_reason: reason, blinded_by: actor(request) } : { status: 'active', blinded_at: null, blinded_reason: null, blinded_by: null }).eq('id', request.params.productId).select('id,seller_id,status').maybeSingle();
+    const { data: current, error: currentError } = await adminSupabase.from('products').select('id,status,status_before_blind').eq('id', request.params.productId).maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return response.status(404).json({ error: '판매글을 찾을 수 없습니다.' });
+    const previousStatus = current.status === 'hidden' ? current.status_before_blind ?? 'active' : current.status;
+    const { data, error } = await adminSupabase.from('products').update(blind ? { status: 'hidden', status_before_blind: previousStatus, blinded_at: new Date().toISOString(), blinded_reason: reason, blinded_by: actor(request) } : { status: previousStatus, status_before_blind: null, blinded_at: null, blinded_reason: null, blinded_by: null }).eq('id', request.params.productId).select('id,seller_id,status').maybeSingle();
     if (error) throw error;
     if (!data) return response.status(404).json({ error: '판매글을 찾을 수 없습니다.' });
     await adminSupabase.from('user_notifications').insert({ user_id: data.seller_id, kind: blind ? 'listing_blinded' : 'listing_restored', title: blind ? '판매글이 임시 숨김 처리되었습니다.' : '판매글이 복구되었습니다.', body: reason ?? '관리자 검토 결과 판매글을 복구했습니다.', payload: { productId: data.id } });
@@ -293,6 +319,24 @@ adminRouter.patch('/market/policy', async (request, response, next) => { try { i
 adminRouter.get('/market/recalculation-runs', async (_request, response, next) => { try { const { data, error } = await adminSupabase.from('price_recalculation_runs').select('*').order('created_at', { ascending: false }).limit(30); if (error) throw error; return response.json({ data: data ?? [] }); } catch (error) { return next(error); } });
 adminRouter.post('/market/recalculate', async (request, response, next) => { try { if (!canWrite(request, response)) return; const { data, error } = await adminSupabase.from('price_recalculation_runs').insert({ requested_by: actor(request), status: 'queued' }).select('*').single(); if (error) throw error; await audit(request, 'price_recalculation.queued', 'price_recalculation', data.id); return response.status(202).json({ data }); } catch (error) { return next(error); } });
 
-adminRouter.get('/chat-flags', async (_request, response, next) => { try { const { data, error } = await adminSupabase.from('chat_detection_flags').select('*,message:messages(id,content,created_at)').order('created_at', { ascending: false }).limit(100); if (error) throw error; return response.json({ data: data ?? [] }); } catch (error) { return next(error); } });
+adminRouter.get('/chat-flags', async (request, response, next) => { try { const { status } = z.object({ status: z.enum(['open', 'reviewed', 'dismissed']).optional() }).parse(request.query); let statement = adminSupabase.from('chat_detection_flags').select('*,message:messages(id,content,created_at,sender:users!messages_sender_id_fkey(id,login_id,nickname),recipient:users!messages_recipient_id_fkey(id,login_id,nickname))').order('created_at', { ascending: false }).limit(100); if (status) statement = statement.eq('status', status); const { data, error } = await statement; if (error) throw error; return response.json({ data: data ?? [] }); } catch (error) { return next(error); } });
+adminRouter.patch('/chat-flags/:flagId', async (request, response, next) => { try { if (!canWrite(request, response)) return; const { status, reason } = z.object({ status: z.enum(['reviewed', 'dismissed']), reason: z.string().trim().min(2).max(500) }).parse(request.body); const { data, error } = await adminSupabase.from('chat_detection_flags').update({ status }).eq('id', request.params.flagId).select('id').maybeSingle(); if (error) throw error; if (!data) return response.status(404).json({ error: '채팅 탐지 항목을 찾을 수 없습니다.' }); await audit(request, `chat_flag.${status}`, 'chat_flag', data.id, reason); return response.json({ data }); } catch (error) { return next(error); } });
+
+adminRouter.post('/announcements', async (request, response, next) => {
+  try {
+    if (!canWrite(request, response)) return;
+    const input = z.object({ title: z.string().trim().min(2).max(200), body: z.string().trim().min(2).max(2000) }).parse(request.body);
+    const { data: content, error: contentError } = await adminSupabase.from('content_items').insert({ kind: 'notice', title: input.title, body: input.body, audience: 'all', active: true, published_at: new Date().toISOString(), created_by: actor(request) }).select('id').single();
+    if (contentError) throw contentError;
+    const { data: users, error: usersError } = await adminSupabase.from('users').select('id');
+    if (usersError) throw usersError;
+    if (users?.length) {
+      const { error: notificationError } = await adminSupabase.from('user_notifications').insert(users.map((user) => ({ user_id: user.id, kind: 'announcement', title: input.title, body: input.body, payload: { contentId: content.id } })));
+      if (notificationError) throw notificationError;
+    }
+    await audit(request, 'announcement.sent', 'content', content.id, input.title, { recipients: users?.length ?? 0 });
+    return response.status(201).json({ data: { id: content.id, recipients: users?.length ?? 0 } });
+  } catch (error) { return next(error); }
+});
 adminRouter.get('/content', async (_request, response, next) => { try { const { data, error } = await adminSupabase.from('content_items').select('*').order('updated_at', { ascending: false }); if (error) throw error; return response.json({ data: data ?? [] }); } catch (error) { return next(error); } });
 adminRouter.post('/content', async (request, response, next) => { try { if (!canWrite(request, response)) return; const input = z.object({ kind: z.enum(['notice', 'popup', 'banner', 'faq', 'terms', 'privacy']), title: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10000), audience: z.string().trim().min(1).max(100).default('all'), active: z.boolean().default(true) }).parse(request.body); const { data, error } = await adminSupabase.from('content_items').insert({ kind: input.kind, title: input.title, body: input.body, audience: input.audience, active: input.active, published_at: input.active ? new Date().toISOString() : null, created_by: actor(request) }).select('*').single(); if (error) throw error; await adminSupabase.from('content_revisions').insert({ content_id: data.id, revision: 1, title: data.title, body: data.body, changed_by: actor(request) }); await audit(request, 'content.created', 'content', data.id, data.title); return response.status(201).json({ data }); } catch (error) { return next(error); } });

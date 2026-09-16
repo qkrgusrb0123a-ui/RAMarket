@@ -1,6 +1,6 @@
 import { getItem, setItem } from './local-storage';
 
-export type NotificationKind = 'chat' | 'favorite-price-drop' | 'custom-product';
+export type NotificationKind = 'chat' | 'favorite-price-drop' | 'custom-product' | 'announcement' | 'system';
 
 export type ChatNotification = {
   id: string;
@@ -10,6 +10,7 @@ export type ChatNotification = {
   productId?: string;
   otherUserId?: string;
   productTitle?: string;
+  title?: string;
   createdAt: string;
   read: boolean;
 };
@@ -28,7 +29,7 @@ export async function loadChatNotifications(userId: string): Promise<ChatNotific
       if (!item || typeof item !== 'object') return [];
       const value = item as Partial<ChatNotification>;
       if (typeof value.id !== 'string' || typeof value.createdAt !== 'string' || typeof value.read !== 'boolean') return [];
-      const kind: NotificationKind = value.kind === 'favorite-price-drop' || value.kind === 'custom-product' ? value.kind : 'chat';
+      const kind: NotificationKind = value.kind === 'favorite-price-drop' || value.kind === 'custom-product' || value.kind === 'announcement' || value.kind === 'system' ? value.kind : 'chat';
       return [{
         id: value.id,
         kind,
@@ -37,6 +38,7 @@ export async function loadChatNotifications(userId: string): Promise<ChatNotific
         productId: typeof value.productId === 'string' ? value.productId : undefined,
         otherUserId: typeof value.otherUserId === 'string' ? value.otherUserId : undefined,
         productTitle: typeof value.productTitle === 'string' ? value.productTitle : undefined,
+        title: typeof value.title === 'string' ? value.title : undefined,
         createdAt: value.createdAt,
         read: value.read
       }];

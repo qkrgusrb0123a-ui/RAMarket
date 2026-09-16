@@ -64,13 +64,24 @@ export type ChatThread = {
   createdAt: string;
 };
 
+export type UserNotification = {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+};
+
 export type ReportTargetType = 'product' | 'chat';
 export type SupportMessage = { id: string; senderRole: 'user' | 'admin'; content: string; createdAt: string };
 export type AdminUser = { id: string; loginId: string; nickname: string; status: 'active' | 'suspended'; suspendedUntil: string | null };
 export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; status: 'received' | 'reviewing' | 'resolved' | 'rejected'; resolutionReason?: string | null; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
 export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
 export type AdminListing = { id: string; title: string; category: string; askingPrice: number; status: Product['status']; createdAt: string; blindedAt: string | null; blindedReason: string | null; anomalyFlags: string[]; seller: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
-export type AdminDashboard = { pendingReports: number; pendingInquiries: number; daily: { day: string; signups: number; listings: number; sold: number }[]; distribution: { category: string; count: number }[]; recentSanctions: { id: string; action: string; reason: string | null; starts_at: string; user: { nickname: string } | null }[]; recentReports: { id: string; status: string; product_title: string; created_at: string }[] };
+export type AdminListingStats = { total: number; active: number; reserved: number; sold: number };
+export type AdminChatFlag = { id: string; flagType: 'account' | 'contact' | 'external_messenger'; status: 'open' | 'reviewed' | 'dismissed'; createdAt: string; message: { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null } | null };
+export type AdminDashboard = { pendingReports: number; pendingInquiries: number; daily: { day: string; signups: number; listings: number; sold: number }[]; recentSanctions: { id: string; action: string; reason: string | null; starts_at: string; user: { nickname: string } | null }[]; recentReports: { id: string; status: string; product_title: string; created_at: string }[] };
 export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
 export type ListingMarketOption = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number };
 export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; averagePrice: number | null; prices: number[] };
@@ -243,6 +254,17 @@ export const reportsApi = {
   }
 };
 
+export const notificationApi = {
+  async list(session: AuthSession) {
+    type ApiNotification = { id: string; kind: string; title: string; body: string; created_at: string; read_at: string | null };
+    const result = await apiRequest<{ data: ApiNotification[] }>('/api/v1/notifications', session);
+    return result.data.map((notification) => ({ id: notification.id, kind: notification.kind, title: notification.title, body: notification.body, createdAt: notification.created_at, read: notification.read_at !== null } satisfies UserNotification));
+  },
+  async markRead(notificationId: string, session: AuthSession) {
+    await apiRequest(`/api/v1/notifications/${notificationId}/read`, session, { method: 'PATCH' });
+  }
+};
+
 type ApiSupportMessage = { id: string; sender_role: 'user' | 'admin'; content: string; created_at: string };
 
 function supportMessageFromApi(message: ApiSupportMessage): SupportMessage {
@@ -276,14 +298,15 @@ export const listingPriceApi = {
 
 export const adminApi = {
   async dashboard(adminToken: string) { const result = await adminRequest<{ data: AdminDashboard }>('/dashboard', adminToken); return result.data; },
-  async listings(adminToken: string, filters: { keyword?: string; seller?: string; status?: Product['status']; minPrice?: number; maxPrice?: number } = {}) { type ApiListing = { id: string; title: string; category: string; asking_price: number; status: Product['status']; created_at: string; blinded_at: string | null; blinded_reason: string | null; anomaly_flags: string[]; seller: ApiAdminUser }; const query = new URLSearchParams(Object.entries(filters).flatMap(([key, value]) => value === undefined || value === '' ? [] : [[key, String(value)]])); const result = await adminRequest<{ data: ApiListing[] }>(`/products?${query}`, adminToken); return result.data.map((item) => ({ id: item.id, title: item.title, category: item.category, askingPrice: item.asking_price, status: item.status, createdAt: item.created_at, blindedAt: item.blinded_at, blindedReason: item.blinded_reason, anomalyFlags: item.anomaly_flags ?? [], seller: oneAdminUser(item.seller) })); },
+  async listings(adminToken: string, filters: { keyword?: string; seller?: string; status?: Product['status']; minPrice?: number; maxPrice?: number } = {}) { type ApiListing = { id: string; title: string; category: string; asking_price: number; status: Product['status']; created_at: string; blinded_at: string | null; blinded_reason: string | null; anomaly_flags: string[]; seller: ApiAdminUser }; const query = new URLSearchParams(Object.entries(filters).flatMap(([key, value]) => value === undefined || value === '' ? [] : [[key, String(value)]])); const result = await adminRequest<{ data: ApiListing[]; stats: AdminListingStats }>(`/products?${query}`, adminToken); return { items: result.data.map((item) => ({ id: item.id, title: item.title, category: item.category, askingPrice: item.asking_price, status: item.status, createdAt: item.created_at, blindedAt: item.blinded_at, blindedReason: item.blinded_reason, anomalyFlags: item.anomaly_flags ?? [], seller: oneAdminUser(item.seller) })), stats: result.stats }; },
   async users(adminToken: string) {
     const result = await adminRequest<{ data: Exclude<ApiAdminUser, null | unknown[]>[] }>('/users', adminToken);
     return result.data.map((user) => oneAdminUser(user)).filter((user): user is AdminUser => user !== null);
   },
-  async reports(adminToken: string, targetType: ReportTargetType) {
+  async reports(adminToken: string, targetType?: ReportTargetType, status?: AdminReport['status']) {
     type ApiReport = { id: string; target_type: ReportTargetType; product_id: string; product_title: string; status: AdminReport['status']; resolution_reason?: string | null; created_at: string; reporter: ApiAdminUser; reportedUser: ApiAdminUser; product: { id: string; title: string; description: string; asking_price: number; status: Product['status'] } | { id: string; title: string; description: string; asking_price: number; status: Product['status'] }[] | null };
-    const result = await adminRequest<{ data: ApiReport[] }>(`/reports?targetType=${targetType}`, adminToken);
+    const query = new URLSearchParams(); if (targetType) query.set('targetType', targetType); if (status) query.set('status', status);
+    const result = await adminRequest<{ data: ApiReport[] }>(`/reports?${query}`, adminToken);
     return result.data.map((report) => {
       const product = Array.isArray(report.product) ? report.product[0] : report.product;
       return { id: report.id, targetType: report.target_type, productId: report.product_id, productTitle: report.product_title, status: report.status, resolutionReason: report.resolution_reason, createdAt: report.created_at, reporter: oneAdminUser(report.reporter), reportedUser: oneAdminUser(report.reportedUser), product: product ? { id: product.id, title: product.title, description: product.description, askingPrice: product.asking_price, status: product.status } : null } satisfies AdminReport;
@@ -313,6 +336,10 @@ export const adminApi = {
   async ignoreReport(adminToken: string, reportId: string) { await adminRequest(`/reports/${reportId}`, adminToken, { method: 'DELETE' }); },
   async processReport(adminToken: string, reportId: string, status: 'reviewing' | 'resolved' | 'rejected', reason: string) { await adminRequest(`/reports/${reportId}`, adminToken, { method: 'PATCH', body: JSON.stringify({ status, reason }) }); },
   async blindProduct(adminToken: string, productId: string, blind: boolean, reason?: string) { await adminRequest(`/products/${productId}/blind`, adminToken, { method: 'PATCH', body: JSON.stringify({ blind, reason }) }); },
+  async permanentlyDeleteProduct(adminToken: string, productId: string) { await adminRequest(`/products/${productId}/permanent`, adminToken, { method: 'DELETE' }); },
+  async chatFlags(adminToken: string, status?: AdminChatFlag['status']) { type ApiFlag = { id: string; flag_type: AdminChatFlag['flagType']; status: AdminChatFlag['status']; created_at: string; message: { id: string; content: string; created_at: string; sender: ApiAdminUser; recipient: ApiAdminUser } | { id: string; content: string; created_at: string; sender: ApiAdminUser; recipient: ApiAdminUser }[] | null }; const result = await adminRequest<{ data: ApiFlag[] }>(`/chat-flags${status ? `?status=${status}` : ''}`, adminToken); return result.data.map((flag) => { const message = Array.isArray(flag.message) ? flag.message[0] : flag.message; return { id: flag.id, flagType: flag.flag_type, status: flag.status, createdAt: flag.created_at, message: message ? { id: message.id, content: message.content, createdAt: message.created_at, sender: oneAdminUser(message.sender), recipient: oneAdminUser(message.recipient) } : null } satisfies AdminChatFlag; }); },
+  async processChatFlag(adminToken: string, flagId: string, status: 'reviewed' | 'dismissed', reason: string) { await adminRequest(`/chat-flags/${flagId}`, adminToken, { method: 'PATCH', body: JSON.stringify({ status, reason }) }); },
+  async sendAnnouncement(adminToken: string, title: string, body: string) { const result = await adminRequest<{ data: { id: string; recipients: number } }>('/announcements', adminToken, { method: 'POST', body: JSON.stringify({ title, body }) }); return result.data; },
   async deleteProduct(adminToken: string, productId: string) { await adminRequest(`/products/${productId}`, adminToken, { method: 'DELETE' }); },
   async suspendUser(adminToken: string, userId: string, duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent', reason?: string) { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'PATCH', body: JSON.stringify({ duration, reason }) }); },
   async cancelSuspension(adminToken: string, userId: string) { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'DELETE' }); },
