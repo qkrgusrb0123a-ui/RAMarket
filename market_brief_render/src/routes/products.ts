@@ -31,7 +31,7 @@ async function favoriteCountByProduct() {
 productsRouter.get('/', async (request, response, next) => {
   try {
     const page = Math.max(1, Number(request.query.page) || 1);
-    const limit = Math.min(50, Math.max(1, Number(request.query.limit) || 20));
+    const limit = Math.min(150, Math.max(1, Number(request.query.limit) || 20));
     const category = typeof request.query.category === 'string' ? request.query.category : undefined;
     const query = typeof request.query.q === 'string' ? request.query.q.trim() : undefined;
     let statement = supabaseForRequest(request)

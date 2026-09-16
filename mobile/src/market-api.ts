@@ -218,7 +218,7 @@ export async function uploadProfileImage(image: UploadableImage, session: AuthSe
 
 export const productsApi = {
   async list(session: AuthSession) {
-    const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products?limit=50', session);
+    const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products?limit=150', session);
     return result.data.map(productFromApi);
   },
   async get(productId: string, session: AuthSession) {

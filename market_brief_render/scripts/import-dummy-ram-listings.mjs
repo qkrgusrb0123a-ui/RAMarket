@@ -4,20 +4,17 @@ import process from 'node:process';
 import { createClient } from '@supabase/supabase-js';
 
 const sourcePath = process.argv[2];
+const replaceExisting = process.argv.includes('--replace');
+const dryRun = process.argv.includes('--dry-run');
 const pythonExecutable = process.env.PYTHON_EXECUTABLE;
 const sellerLoginId = 'seller';
-const markerPrefix = '[시연 데이터: 국내 RAM 2026-09-15 #';
 const workbookReader = "import json, pandas as pd, sys; df = pd.read_excel(sys.argv[1], sheet_name=0).astype(object).where(lambda value: pd.notna(value), None); print(json.dumps(df.to_dict(orient='records'), ensure_ascii=False, allow_nan=False, default=str))";
 
-if (!sourcePath) throw new Error('Usage: node scripts/import-dummy-ram-listings.mjs <source.xlsx>');
+if (!sourcePath) throw new Error('Usage: node scripts/import-dummy-ram-listings.mjs <source.xlsx> [--replace] [--dry-run]');
 if (!pythonExecutable) throw new Error('Set PYTHON_EXECUTABLE to a Python runtime that has pandas installed.');
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing Supabase credentials.');
 
-const readWorkbook = spawnSync(
-  pythonExecutable,
-  ['-X', 'utf8', '-c', workbookReader, sourcePath],
-  { encoding: 'utf8' }
-);
+const readWorkbook = spawnSync(pythonExecutable, ['-X', 'utf8', '-c', workbookReader, sourcePath], { encoding: 'utf8' });
 if (readWorkbook.status !== 0) throw new Error(readWorkbook.stderr || 'Could not read the source workbook.');
 
 const rows = JSON.parse(readWorkbook.stdout);
@@ -25,11 +22,70 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
-function cleanProductName(name) {
-  return String(name)
-    .replace(/\s*\[[^\]]+\]\s*$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+const conditions = ['like_new', 'good', 'new', 'good', 'like_new', 'fair'];
+const priceMultipliers = { new: 0.88, like_new: 0.81, good: 0.74, fair: 0.67 };
+const conditionText = {
+  new: '미개봉 보관품입니다.',
+  like_new: '테스트 후 보관해 상태가 깔끔합니다.',
+  good: '정상 사용하던 제품이며 인식 확인했습니다.',
+  fair: '사용감은 있지만 정상 작동 확인했습니다.'
+};
+const shippingText = [
+  '직거래와 택배 거래 모두 가능합니다.',
+  '안전결제 또는 택배 거래 가능합니다.',
+  '거래 방식은 편하게 문의해 주세요.',
+  '포장해서 택배 발송 가능합니다.'
+];
+const categoryOptions = {
+  DDR5: { capacityGb: [8, 12, 16, 24, 32, 64, 128], clockMhz: [5600, 6000] },
+  DDR4: { capacityGb: [4, 8, 16, 32, 64], clockMhz: [2666, 3200] }
+};
+
+function valueOf(row, ...headers) {
+  for (const header of headers) {
+    if (row[header] !== undefined && row[header] !== null && String(row[header]).trim()) return String(row[header]).trim();
+  }
+  throw new Error(`Missing workbook field: ${headers.join(' / ')}`);
+}
+
+function integerOf(value) {
+  const matches = [...String(value).matchAll(/(\d[\d,]*)\s*원/g)].map((match) => Number(match[1].replaceAll(',', '')));
+  if (!matches.length) throw new Error(`Could not find a won price in: ${value}`);
+  return Math.min(...matches);
+}
+
+function closestValue(value, options) {
+  return options.reduce((closest, candidate) => {
+    const candidateDistance = Math.abs(candidate - value);
+    const closestDistance = Math.abs(closest - value);
+    return candidateDistance < closestDistance || (candidateDistance === closestDistance && candidate < closest) ? candidate : closest;
+  });
+}
+
+function capacityDetails(value, standard) {
+  const capacity = String(value).replaceAll(' ', '');
+  const pairMatch = capacity.match(/^(\d+)GB\((\d+)G[xX]2\)$/i);
+  const totalMatch = capacity.match(/^(\d+)GB/);
+  if (!totalMatch) throw new Error(`Could not read capacity: ${value}`);
+  const options = categoryOptions[standard]?.capacityGb;
+  const sourceUnitGb = pairMatch ? Number(pairMatch[2]) : Number(totalMatch[1]);
+  // The listing form has no 48GB option. The supplied 96GB(48GB×2) kits are
+  // represented as the requested 24GB two-module example.
+  const displayedGb = options
+    ? (sourceUnitGb === 48 && pairMatch ? 24 : closestValue(sourceUnitGb, options))
+    : sourceUnitGb;
+  return {
+    displayedGb,
+    quantity: pairMatch ? 2 : 1,
+    configuration: pairMatch ? `${displayedGb}GB 2개` : `${displayedGb}GB`
+  };
+}
+
+function normalizedClock(value, standard) {
+  const sourceClock = Number(String(value).match(/\d+/)?.[0]);
+  if (!sourceClock) throw new Error(`Could not read clock: ${value}`);
+  const options = categoryOptions[standard]?.clockMhz;
+  return options ? closestValue(sourceClock, options) : sourceClock;
 }
 
 function withinTitleLimit(value) {
@@ -37,57 +93,68 @@ function withinTitleLimit(value) {
 }
 
 function makeListing(row, index) {
-  const standard = String(row['규격']);
-  const device = String(row['사용장치']);
-  const manufacturer = String(row['제조사']);
-  const productName = cleanProductName(row['제품명']);
-  const capacity = Number(row['용량(GB)']);
-  const clock = Number(row['클럭(MHz)']);
-  const configuration = String(row['구성']);
-  const marketPrice = Number(row['최저가(원)']);
-  const conditions = ['like_new', 'good', 'new', 'good', 'like_new', 'fair'];
+  const manufacturer = valueOf(row, '제조사');
+  const standard = valueOf(row, '규격(DDR, DDR4)', '규격');
+  const capacityInfo = capacityDetails(valueOf(row, '용량', '용량(GB)'), standard);
+  const clock = normalizedClock(valueOf(row, '클럭', '클럭(MHz)'), standard);
+  const sourceDevice = valueOf(row, '상품 종류(데스크탑, 노트북)', '사용장치');
+  const productType = sourceDevice === '노트북' ? 'laptop' : 'desktop';
+  const deviceLabel = productType === 'laptop' ? '노트북용' : '데스크탑용';
   const condition = conditions[index % conditions.length];
-  const priceMultipliers = { new: 0.88, like_new: 0.81, good: 0.74, fair: 0.67 };
-  const askingPrice = Math.max(20000, Math.round((marketPrice * priceMultipliers[condition]) / 1000) * 1000);
-  const conditionText = {
-    new: '미개봉 보관품입니다.',
-    like_new: '테스트 후 보관해 상태가 깔끔합니다.',
-    good: '정상 사용하던 제품이며 인식 확인했습니다.',
-    fair: '사용감은 있지만 정상 작동 확인했습니다.'
-  }[condition];
-  const shippingText = [
-    '직거래와 택배 거래 모두 가능합니다.',
-    '안전결제 또는 택배 거래 가능합니다.',
-    '거래 방식은 편하게 문의해 주세요.',
-    '포장해서 택배 발송 가능합니다.'
-  ][index % 4];
-  const titles = [
-    `${productName} ${configuration} 팝니다`,
-    `${manufacturer} ${standard}-${clock} ${capacity}GB 데스크탑 RAM 판매`,
-    `${standard} ${clock}MHz ${configuration} 메모리 판매합니다`,
-    `${manufacturer} ${capacity}GB RAM, 정상 인식 확인`,
-    `데스크탑용 ${standard}-${clock} ${configuration} 판매`,
-    `${productName} 메모리 정리합니다`
-  ];
-  const descriptions = [
-    `${productName} ${configuration} 제품입니다. ${standard} ${clock}MHz, 총 ${capacity}GB 구성입니다. ${conditionText} ${shippingText}`,
-    `컴퓨터 업그레이드 후 남은 ${manufacturer} 메모리입니다. ${standard}-${clock} 규격의 ${configuration} 구성이고 총 ${capacity}GB입니다. ${conditionText} ${shippingText}`,
-    `${device}용 RAM 판매합니다. 모델은 ${productName}이며 ${standard} ${clock}MHz / ${configuration} 사양입니다. ${conditionText} ${shippingText}`,
-    `${standard} ${capacity}GB 메모리입니다. ${productName} ${configuration} 구성으로 확인했고, 부팅 및 메모리 인식 테스트를 마쳤습니다. ${conditionText} ${shippingText}`,
-    `사용하던 PC 부품 정리 중입니다. ${manufacturer} ${standard}-${clock}, ${configuration} 구성입니다. ${conditionText} ${shippingText}`,
-    `${productName} 판매합니다. ${clock}MHz 클럭의 ${standard} 메모리이며 ${configuration}로 구성되어 있습니다. ${conditionText} ${shippingText}`
-  ];
-  const marker = `${markerPrefix}${String(index + 1).padStart(2, '0')}]`;
+  const marketPrice = integerOf(valueOf(row, '가격', '최저가(원)'));
+  const askingPrice = Math.max(10000, Math.round((marketPrice * priceMultipliers[condition]) / 1000) * 1000);
+  const unitText = capacityInfo.quantity === 2 ? `${capacityInfo.displayedGb}GB 메모리 두장` : `${capacityInfo.displayedGb}GB 메모리`;
+  const quantityText = capacityInfo.quantity === 2 ? ` ${capacityInfo.displayedGb}GB 제품 두 장을 함께 판매하며, 판매 가격은 두 장 일괄 기준입니다.` : '';
+  const category = `${standard} · ${clock}MHz · ${capacityInfo.displayedGb}GB`;
+  const title = capacityInfo.quantity === 2
+    ? `${manufacturer} ${standard}-${clock}MHz ${capacityInfo.displayedGb}GB 두장 판매합니다`
+    : `${manufacturer} ${standard}-${clock}MHz ${capacityInfo.displayedGb}GB ${deviceLabel} RAM 판매`;
+  const description = `${manufacturer} ${unitText} 판매합니다. ${standard} ${clock}MHz, ${capacityInfo.configuration} 구성입니다.${quantityText} ${conditionText[condition]} ${shippingText[index % shippingText.length]}`;
+
   return {
-    title: withinTitleLimit(titles[index % titles.length]),
-    description: `${descriptions[index % descriptions.length]}\n\n${marker}`,
-    category: `${standard} · ${clock}MHz · ${capacity}GB`,
-    product_type: device === '데스크탑' ? 'desktop' : 'laptop',
+    title: withinTitleLimit(title),
+    description,
+    category,
+    product_type: productType,
     condition,
     asking_price: askingPrice,
     status: 'active',
     created_at: new Date(Date.now() - index * 4.5 * 60 * 60 * 1000).toISOString()
   };
+}
+
+async function deleteSellerListings(sellerId) {
+  const { data: products, error: productsError } = await supabase.from('products').select('id').eq('seller_id', sellerId);
+  if (productsError) throw productsError;
+  const ids = (products ?? []).map((product) => product.id);
+  if (!ids.length) return 0;
+
+  const { error: messagesError } = await supabase.from('messages').delete().in('product_id', ids);
+  if (messagesError) throw messagesError;
+  const { error: deleteError } = await supabase.from('products').delete().in('id', ids);
+  if (deleteError) throw deleteError;
+  return ids.length;
+}
+
+async function insertInBatches(listings, sellerId) {
+  for (let start = 0; start < listings.length; start += 50) {
+    const { error } = await supabase.from('products').insert(listings.slice(start, start + 50).map((listing) => ({ ...listing, seller_id: sellerId })));
+    if (error) throw error;
+  }
+}
+
+const listings = rows.map(makeListing);
+const summary = {
+  sourceRows: rows.length,
+  serverConverted: rows.filter((row) => row['상품 종류(데스크탑, 노트북)'] === '서버용').length,
+  ddr3Other: listings.filter((listing) => listing.category.startsWith('DDR3 · ')).length,
+  twoModuleListings: listings.filter((listing) => /두장 판매합니다/.test(listing.title)).length,
+  source96GbPairs: rows.filter((row) => /^96GB\(48G[xX]2\)$/i.test(String(row['용량']).replaceAll(' ', ''))).length,
+  twentyFourGbPairListings: listings.filter((listing) => /24GB 두장 판매합니다/.test(listing.title)).length
+};
+if (dryRun) {
+  console.log(JSON.stringify({ ...summary, preview: listings.filter((listing) => /24GB 두장 판매합니다/.test(listing.title)).slice(0, 2) }));
+  process.exit(0);
 }
 
 const { data: seller, error: sellerError } = await supabase
@@ -98,21 +165,7 @@ const { data: seller, error: sellerError } = await supabase
 if (sellerError) throw sellerError;
 if (!seller) throw new Error(`The ${sellerLoginId} account does not exist.`);
 
-const { data: existing, error: existingError } = await supabase
-  .from('products')
-  .select('description')
-  .eq('seller_id', seller.id)
-  .ilike('description', `%${markerPrefix}%`);
-if (existingError) throw existingError;
-const existingMarkers = new Set((existing ?? []).map((product) => product.description.match(/#(\d{2})\]$/m)?.[1]).filter(Boolean));
+const deleted = replaceExisting ? await deleteSellerListings(seller.id) : 0;
+await insertInBatches(listings, seller.id);
 
-const listings = rows
-  .map(makeListing)
-  .filter((listing) => !existingMarkers.has(listing.description.match(/#(\d{2})\]$/m)?.[1]));
-
-if (listings.length) {
-  const { error: insertError } = await supabase.from('products').insert(listings.map((listing) => ({ ...listing, seller_id: seller.id })));
-  if (insertError) throw insertError;
-}
-
-console.log(JSON.stringify({ sourceRows: rows.length, seller: seller.login_id, inserted: listings.length, skippedExisting: rows.length - listings.length, imagesAttached: 0 }));
+console.log(JSON.stringify({ ...summary, seller: seller.login_id, deleted, inserted: listings.length }));
