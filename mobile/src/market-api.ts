@@ -221,6 +221,10 @@ export const productsApi = {
     const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products?limit=150', session);
     return result.data.map(productFromApi);
   },
+  async listMine(session: AuthSession) {
+    const result = await apiRequest<{ data: ApiProduct[] }>('/api/v1/products/mine?limit=150', session);
+    return result.data.map(productFromApi);
+  },
   async get(productId: string, session: AuthSession) {
     const result = await apiRequest<{ data: ApiProduct }>(`/api/v1/products/${productId}`, session);
     return productFromApi(result.data);

@@ -47,6 +47,22 @@ productsRouter.get('/', async (request, response, next) => {
   } catch (error) { return next(error); }
 });
 
+productsRouter.get('/mine', requireAuth, async (request, response, next) => {
+  try {
+    const page = Math.max(1, Number(request.query.page) || 1);
+    const limit = Math.min(150, Math.max(1, Number(request.query.limit) || 150));
+    const statement = supabaseForRequest(request)
+      .from('products')
+      .select('id,title,description,category,product_type,condition,asking_price,status,created_at,seller:users!products_seller_id_fkey(id,nickname,avatar_url),products_images(path,sort_order)', { count: 'exact' })
+      .eq('seller_id', request.userId)
+      .order('created_at', { ascending: false })
+      .range((page - 1) * limit, page * limit - 1);
+    const [{ data, count, error }, favoriteCounts] = await Promise.all([statement, favoriteCountByProduct()]);
+    if (error) throw error;
+    return response.json({ data: (data ?? []).map((product) => ({ ...product, favorite_count: favoriteCounts.get(product.id) ?? 0 })), page, limit, total: count ?? 0 });
+  } catch (error) { return next(error); }
+});
+
 productsRouter.get('/favorites/mine', requireAuth, async (request, response, next) => {
   try {
     const { data, error } = await adminSupabase.from('product_favorites').select('product_id').eq('user_id', request.userId);
