@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { supabaseForRequest } from '../lib/supabase.js';
+import { adminSupabase } from '../lib/supabase.js';
 
 const messageQuery = z.object({
   productId: z.string().uuid().optional(),
@@ -15,6 +16,20 @@ const messageInput = z.object({
 });
 
 export const messagesRouter = Router();
+
+const prohibitedChatPatterns: [RegExp, 'account' | 'contact' | 'external_messenger'][] = [
+  [/\b\d{3}[-\s]?\d{3,4}[-\s]?\d{4}\b/, 'contact'],
+  [/\b\d{2,3}[-\s]?\d{2,6}[-\s]?\d{2,6}\b/, 'account'],
+  [/(카카오\s*톡|오픈\s*채팅|텔레그램|텔레\s*그램|line\s*id|카톡\s*id)/i, 'external_messenger']
+];
+
+async function flagRestrictedChat(messageId: string, content: string) {
+  const match = prohibitedChatPatterns.find(([pattern]) => pattern.test(content));
+  if (!match) return;
+  const [, flagType] = match;
+  // Detection must never block a legitimate message if the review queue is unavailable.
+  await adminSupabase.from('chat_detection_flags').upsert({ message_id: messageId, flag_type: flagType, matched_value: content.slice(0, 100) }, { onConflict: 'message_id' });
+}
 
 messagesRouter.get('/threads', requireAuth, async (request, response, next) => {
   try {
@@ -64,6 +79,7 @@ messagesRouter.post('/', requireAuth, async (request, response, next) => {
       content: input.content
     }).select().single();
     if (error) throw error;
+    void flagRestrictedChat(data.id, input.content).catch((error) => console.error('Unable to flag chat message:', error));
     return response.status(201).json({ data });
   } catch (error) { return next(error); }
 });

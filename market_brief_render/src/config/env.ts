@@ -14,6 +14,8 @@ const environmentSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000,http://localhost:8081'),
   ADMIN_LOGIN_ID: optionalLoginId,
+  ADMIN_ROLE: z.enum(['super_admin', 'operator', 'viewer']).default('super_admin'),
+  ADMIN_ALLOWED_IPS: z.string().default(''),
   ADMIN_SESSION_SECRET: z.string().min(32),
   // These credentials are used only by the scheduled server-side collector.
   // They must never be exposed through EXPO_PUBLIC_* variables.
@@ -29,5 +31,6 @@ if (!parsed.success) {
 
 export const env = {
   ...parsed.data,
-  allowedOrigins: parsed.data.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+  allowedOrigins: parsed.data.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+  adminAllowedIps: parsed.data.ADMIN_ALLOWED_IPS.split(',').map((ip) => ip.trim()).filter(Boolean)
 };

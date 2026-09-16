@@ -67,8 +67,10 @@ export type ChatThread = {
 export type ReportTargetType = 'product' | 'chat';
 export type SupportMessage = { id: string; senderRole: 'user' | 'admin'; content: string; createdAt: string };
 export type AdminUser = { id: string; loginId: string; nickname: string; status: 'active' | 'suspended'; suspendedUntil: string | null };
-export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
+export type AdminReport = { id: string; targetType: ReportTargetType; productId: string; productTitle: string; status: 'received' | 'reviewing' | 'resolved' | 'rejected'; resolutionReason?: string | null; createdAt: string; reporter: AdminUser | null; reportedUser: AdminUser | null; product: { id: string; title: string; description: string; askingPrice: number; status: Product['status'] } | null };
 export type AdminInquiry = { id: string; contactLabel: string; status: 'open' | 'closed'; createdAt: string; updatedAt: string };
+export type AdminListing = { id: string; title: string; category: string; askingPrice: number; status: Product['status']; createdAt: string; blindedAt: string | null; blindedReason: string | null; anomalyFlags: string[]; seller: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
+export type AdminDashboard = { pendingReports: number; pendingInquiries: number; daily: { day: string; signups: number; listings: number; sold: number }[]; distribution: { category: string; count: number }[]; recentSanctions: { id: string; action: string; reason: string | null; starts_at: string; user: { nickname: string } | null }[]; recentReports: { id: string; status: string; product_title: string; created_at: string }[] };
 export type AdminConversationMessage = { id: string; content: string; createdAt: string; sender: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null; recipient: Pick<AdminUser, 'id' | 'loginId' | 'nickname'> | null };
 export type ListingMarketOption = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number };
 export type ListingMarketChart = { generation: 'DDR4' | 'DDR5'; capacityGb: number; sampleCount: number; minPrice: number | null; maxPrice: number | null; medianPrice: number | null; averagePrice: number | null; prices: number[] };
@@ -273,16 +275,18 @@ export const listingPriceApi = {
 };
 
 export const adminApi = {
+  async dashboard(adminToken: string) { const result = await adminRequest<{ data: AdminDashboard }>('/dashboard', adminToken); return result.data; },
+  async listings(adminToken: string, filters: { keyword?: string; seller?: string; status?: Product['status']; minPrice?: number; maxPrice?: number } = {}) { type ApiListing = { id: string; title: string; category: string; asking_price: number; status: Product['status']; created_at: string; blinded_at: string | null; blinded_reason: string | null; anomaly_flags: string[]; seller: ApiAdminUser }; const query = new URLSearchParams(Object.entries(filters).flatMap(([key, value]) => value === undefined || value === '' ? [] : [[key, String(value)]])); const result = await adminRequest<{ data: ApiListing[] }>(`/products?${query}`, adminToken); return result.data.map((item) => ({ id: item.id, title: item.title, category: item.category, askingPrice: item.asking_price, status: item.status, createdAt: item.created_at, blindedAt: item.blinded_at, blindedReason: item.blinded_reason, anomalyFlags: item.anomaly_flags ?? [], seller: oneAdminUser(item.seller) })); },
   async users(adminToken: string) {
     const result = await adminRequest<{ data: Exclude<ApiAdminUser, null | unknown[]>[] }>('/users', adminToken);
     return result.data.map((user) => oneAdminUser(user)).filter((user): user is AdminUser => user !== null);
   },
   async reports(adminToken: string, targetType: ReportTargetType) {
-    type ApiReport = { id: string; target_type: ReportTargetType; product_id: string; product_title: string; created_at: string; reporter: ApiAdminUser; reportedUser: ApiAdminUser; product: { id: string; title: string; description: string; asking_price: number; status: Product['status'] } | { id: string; title: string; description: string; asking_price: number; status: Product['status'] }[] | null };
+    type ApiReport = { id: string; target_type: ReportTargetType; product_id: string; product_title: string; status: AdminReport['status']; resolution_reason?: string | null; created_at: string; reporter: ApiAdminUser; reportedUser: ApiAdminUser; product: { id: string; title: string; description: string; asking_price: number; status: Product['status'] } | { id: string; title: string; description: string; asking_price: number; status: Product['status'] }[] | null };
     const result = await adminRequest<{ data: ApiReport[] }>(`/reports?targetType=${targetType}`, adminToken);
     return result.data.map((report) => {
       const product = Array.isArray(report.product) ? report.product[0] : report.product;
-      return { id: report.id, targetType: report.target_type, productId: report.product_id, productTitle: report.product_title, createdAt: report.created_at, reporter: oneAdminUser(report.reporter), reportedUser: oneAdminUser(report.reportedUser), product: product ? { id: product.id, title: product.title, description: product.description, askingPrice: product.asking_price, status: product.status } : null } satisfies AdminReport;
+      return { id: report.id, targetType: report.target_type, productId: report.product_id, productTitle: report.product_title, status: report.status, resolutionReason: report.resolution_reason, createdAt: report.created_at, reporter: oneAdminUser(report.reporter), reportedUser: oneAdminUser(report.reportedUser), product: product ? { id: product.id, title: product.title, description: product.description, askingPrice: product.asking_price, status: product.status } : null } satisfies AdminReport;
     });
   },
   async suspensions(adminToken: string) {
@@ -307,8 +311,10 @@ export const adminApi = {
     return { productTitle: result.data.productTitle, messages: result.data.messages.map((message) => ({ id: message.id, content: message.content, createdAt: message.created_at, sender: oneAdminUser(message.sender), recipient: oneAdminUser(message.recipient) })) };
   },
   async ignoreReport(adminToken: string, reportId: string) { await adminRequest(`/reports/${reportId}`, adminToken, { method: 'DELETE' }); },
+  async processReport(adminToken: string, reportId: string, status: 'reviewing' | 'resolved' | 'rejected', reason: string) { await adminRequest(`/reports/${reportId}`, adminToken, { method: 'PATCH', body: JSON.stringify({ status, reason }) }); },
+  async blindProduct(adminToken: string, productId: string, blind: boolean, reason?: string) { await adminRequest(`/products/${productId}/blind`, adminToken, { method: 'PATCH', body: JSON.stringify({ blind, reason }) }); },
   async deleteProduct(adminToken: string, productId: string) { await adminRequest(`/products/${productId}`, adminToken, { method: 'DELETE' }); },
-  async suspendUser(adminToken: string, userId: string, duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent') { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'PATCH', body: JSON.stringify({ duration }) }); },
+  async suspendUser(adminToken: string, userId: string, duration: '1d' | '3d' | '7d' | '30d' | '1y' | 'permanent', reason?: string) { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'PATCH', body: JSON.stringify({ duration, reason }) }); },
   async cancelSuspension(adminToken: string, userId: string) { await adminRequest(`/users/${userId}/suspension`, adminToken, { method: 'DELETE' }); },
   async deleteUser(adminToken: string, userId: string) { await adminRequest(`/users/${userId}`, adminToken, { method: 'DELETE' }); }
 };

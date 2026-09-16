@@ -55,7 +55,8 @@ reportsRouter.post('/', requireAuth, async (request, response, next) => {
       reporter_id: request.userId,
       reported_user_id: input.reportedUserId,
       product_id: input.productId,
-      product_title: product.title
+      product_title: product.title,
+      status: 'received'
     }).select('id').single();
     if (error) throw error;
     return response.status(201).json({ data: { id: data.id, alreadyReported: false } });
