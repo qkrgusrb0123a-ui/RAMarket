@@ -14,7 +14,7 @@ export default {
   expo: {
     name: 'RAMarket',
     slug: 'ramarket-mobile',
-    version: '1.1.2',
+    version: '1.1.3',
     platforms: ['ios', 'android', 'web'],
     orientation: 'portrait',
     icon: './assets/app-icon-ram.png',

@@ -24,7 +24,7 @@ ramPriceRouter.get('/options', async (request, response, next) => {
     }
     for (const product of data ?? []) {
       const spec = parseRamSpec(product.category);
-      if (!spec) continue;
+      if (!spec || (spec.generation === 'DDR5' && spec.capacityGb === 96)) continue;
       const key = `${spec.generation}:${spec.capacityGb}`;
       const current = options.get(key);
       options.set(key, { generation: spec.generation, capacityGb: spec.capacityGb, sampleCount: (current?.sampleCount ?? 0) + 1 });
